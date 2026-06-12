@@ -1,0 +1,59 @@
+name: woodsvoice
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-woodsvoice}
+      POSTGRES_USER: ${POSTGRES_USER:-woodsvoice}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change-me-please}
+    command: postgres -c shared_buffers=64MB -c max_connections=40
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+    networks: [internal]
+
+  backend:
+    build: ./backend
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER:-woodsvoice}:${POSTGRES_PASSWORD:-change-me-please}@db:5432/${POSTGRES_DB:-woodsvoice}
+      JWT_SECRET: ${JWT_SECRET:-dev-secret-change-me}
+      PORT: 4000
+      TZ: ${TZ:-America/Toronto}
+      ADMIN_USERNAME: ${ADMIN_USERNAME:-admin}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-WoodsVoice!demo}
+      SEED_DEMO_DATA: ${SEED_DEMO_DATA:-true}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      AI_MODEL: ${AI_MODEL:-claude-opus-4-8}
+      UPLOAD_DIR: /data/uploads
+    volumes:
+      - uploads:/data/uploads
+    depends_on:
+      db:
+        condition: service_healthy
+    networks: [internal]
+
+  frontend:
+    build: ./frontend
+    restart: unless-stopped
+    depends_on:
+      - backend
+    networks: [internal, web]
+    labels:
+      caddy: woodsvoice.10.0.12.189.nip.io
+      caddy.reverse_proxy: "{{upstreams 80}}"
+
+volumes:
+  pgdata:
+  uploads:
+
+networks:
+  internal:
+  web:
+    external: true
