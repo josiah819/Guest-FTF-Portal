@@ -18,6 +18,22 @@ const URGENCIES = [
 
 const blankForm = { type: 'issue', category: '', message: '', urgency: 'normal', name: '', email: '', phone: '', group: '' };
 
+// Returning guests shouldn't retype who they are. Saved only on their own
+// device, never in kiosk mode (shared screens).
+const GUEST_KEY = 'woodsvoice_guest';
+const CONTACT_KEYS = ['name', 'group', 'email', 'phone'];
+
+function loadSavedContact() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(GUEST_KEY) || '{}');
+    const out = {};
+    for (const k of CONTACT_KEYS) if (typeof saved[k] === 'string' && saved[k]) out[k] = saved[k];
+    return out;
+  } catch {
+    return {};
+  }
+}
+
 export default function GuestForm() {
   const [params] = useSearchParams();
   const kioskParam = params.get('kiosk') === '1';
@@ -28,6 +44,8 @@ export default function GuestForm() {
   const [form, setForm] = useState({ ...blankForm });
   const [locationSlug, setLocationSlug] = useState('');
   const [locLocked, setLocLocked] = useState(false);
+  const [contactOpen, setContactOpen] = useState(false);
+  const [hasSaved, setHasSaved] = useState(false);
   const [photo, setPhoto] = useState(null);
   const [photoPreview, setPhotoPreview] = useState('');
   const [submitting, setSubmitting] = useState(false);
@@ -43,6 +61,13 @@ export default function GuestForm() {
         if (locParam && cfg.locations.some(l => l.slug === locParam)) {
           setLocationSlug(locParam);
           setLocLocked(true);
+        }
+        if (!kioskParam) {
+          const saved = loadSavedContact();
+          if (Object.keys(saved).length) {
+            setForm(f => ({ ...f, ...saved }));
+            setHasSaved(true);
+          }
         }
       })
       .catch(() => setLoadError('We couldn’t load the form. Please try again in a moment.'));
@@ -77,12 +102,33 @@ export default function GuestForm() {
     setPhotoPreview(URL.createObjectURL(file));
   }
 
+  function saveContact() {
+    if (kiosk) return;
+    const data = {};
+    for (const k of CONTACT_KEYS) if (form[k]) data[k] = form[k];
+    try {
+      if (Object.keys(data).length) {
+        localStorage.setItem(GUEST_KEY, JSON.stringify(data));
+        setHasSaved(true);
+      }
+    } catch { /* private mode etc. — not worth surfacing */ }
+  }
+
+  function clearSavedContact() {
+    try { localStorage.removeItem(GUEST_KEY); } catch { /* ignore */ }
+    setForm(f => ({ ...f, name: '', email: '', phone: '', group: '' }));
+    setHasSaved(false);
+  }
+
   function resetAll() {
-    setForm({ ...blankForm });
+    // Keep who-you-are between notes (a leader often sends several) — kiosks reset fully.
+    const saved = kiosk ? {} : loadSavedContact();
+    setForm({ ...blankForm, ...saved });
     setPhoto(null);
     setPhotoPreview('');
     setSuccess(null);
     setError('');
+    setContactOpen(false);
     if (!locLocked) setLocationSlug('');
     window.scrollTo({ top: 0 });
   }
@@ -109,6 +155,7 @@ export default function GuestForm() {
       fd.append('source', kiosk ? 'kiosk' : (locParam ? 'qr' : 'web'));
       if (photo && config.features.photoUpload) fd.append('photo', photo);
       const res = await api.submit(fd);
+      saveContact();
       setSuccess(res);
       window.scrollTo({ top: 0, behavior: 'smooth' });
       if (kiosk) resetTimer.current = setTimeout(resetAll, 15000);
@@ -134,6 +181,28 @@ export default function GuestForm() {
   const reqMark = (k) => f[k] === 'required'
     ? <span className="opt">required</span>
     : <span className="opt">optional</span>;
+
+  // Contact fields: required ones always show; optional ones tuck behind one
+  // tap so the everyday form stays message + send.
+  const contactKeys = CONTACT_KEYS.filter(showField);
+  const requiredContact = contactKeys.filter(k => f[k] === 'required');
+  const optionalContact = contactKeys.filter(k => f[k] !== 'required');
+  const filledContact = contactKeys.filter(k => form[k]);
+  const contactSummary = form.name || form.email || (filledContact.length ? `${filledContact.length} detail${filledContact.length > 1 ? 's' : ''}` : '');
+
+  const CONTACT_PROPS = {
+    name: { label: 'Your name', props: { autoComplete: 'name', autoCapitalize: 'words' } },
+    group: { label: 'School / group', props: { autoComplete: 'organization' } },
+    email: { label: 'Email', props: { type: 'email', autoComplete: 'email', inputMode: 'email', autoCapitalize: 'none' } },
+    phone: { label: 'Phone', props: { type: 'tel', autoComplete: 'tel', inputMode: 'tel' } },
+  };
+
+  const renderContactField = (k) => (
+    <div key={k}>
+      <div className="field-label">{CONTACT_PROPS[k].label} {reqMark(k)}</div>
+      <input className="input" {...CONTACT_PROPS[k].props} value={form[k]} onChange={e => set(k)(e.target.value)} />
+    </div>
+  );
 
   return (
     <div className={shellClass}>
@@ -198,25 +267,6 @@ export default function GuestForm() {
                 </>
               )}
 
-              <div className="field-label">
-                Category
-                <span className="opt">{config.features.aiCategorization ? 'optional — we’ll sort it for you' : 'optional'}</span>
-              </div>
-              <div className="cat-grid">
-                {config.categories.map(c => (
-                  <button
-                    type="button"
-                    key={c.slug}
-                    className={`cat-tile${form.category === c.slug ? ' on' : ''}`}
-                    onClick={() => set('category')(form.category === c.slug ? '' : c.slug)}
-                    aria-pressed={form.category === c.slug}
-                  >
-                    <span className="em">{c.emoji}</span>
-                    <span className="nm">{c.name}</span>
-                  </button>
-                ))}
-              </div>
-
               <div className="field-label">What’s going on? <span className="opt">required</span></div>
               <textarea
                 className="input"
@@ -226,6 +276,17 @@ export default function GuestForm() {
                 maxLength={4000}
                 required
               />
+
+              {config.features.photoUpload && (
+                <>
+                  <div className="photo-drop" style={{ marginTop: 10 }} onClick={() => fileRef.current?.click()}>
+                    {photoPreview
+                      ? <><img src={photoPreview} alt="preview" /> <span>{photo?.name}</span></>
+                      : <><span style={{ fontSize: 22 }}>📷</span> <span>Snap or choose a photo (optional, 8 MB max)</span></>}
+                  </div>
+                  <input ref={fileRef} type="file" accept="image/*" capture="environment" hidden onChange={pickPhoto} />
+                </>
+              )}
 
               {showField('location') && (
                 <>
@@ -266,50 +327,50 @@ export default function GuestForm() {
                 </>
               )}
 
-              {(showField('name') || showField('group')) && (
-                <div style={{ display: 'grid', gridTemplateColumns: showField('name') && showField('group') ? '1fr 1fr' : '1fr', gap: 10 }}>
-                  {showField('name') && (
-                    <div>
-                      <div className="field-label">Your name {reqMark('name')}</div>
-                      <input className="input" autoComplete="name" value={form.name} onChange={e => set('name')(e.target.value)} />
-                    </div>
-                  )}
-                  {showField('group') && (
-                    <div>
-                      <div className="field-label">School / group {reqMark('group')}</div>
-                      <input className="input" value={form.group} onChange={e => set('group')(e.target.value)} />
-                    </div>
-                  )}
+              <div className="field-label">
+                Category
+                <span className="opt">{config.features.aiCategorization ? 'skip it — we’ll sort it for you' : 'optional'}</span>
+              </div>
+              <div className="cat-grid">
+                {config.categories.map(c => (
+                  <button
+                    type="button"
+                    key={c.slug}
+                    className={`cat-tile${form.category === c.slug ? ' on' : ''}`}
+                    onClick={() => set('category')(form.category === c.slug ? '' : c.slug)}
+                    aria-pressed={form.category === c.slug}
+                  >
+                    <span className="em">{c.emoji}</span>
+                    <span className="nm">{c.name}</span>
+                  </button>
+                ))}
+              </div>
+
+              {requiredContact.length > 0 && (
+                <div className="contact-grid">
+                  {requiredContact.map(renderContactField)}
                 </div>
               )}
 
-              {(showField('email') || showField('phone')) && (
-                <div style={{ display: 'grid', gridTemplateColumns: showField('email') && showField('phone') ? '1fr 1fr' : '1fr', gap: 10 }}>
-                  {showField('email') && (
-                    <div>
-                      <div className="field-label">Email {reqMark('email')}</div>
-                      <input className="input" type="email" autoComplete="email" inputMode="email" value={form.email} onChange={e => set('email')(e.target.value)} />
+              {optionalContact.length > 0 && (
+                contactOpen ? (
+                  <div className="contact-block">
+                    <div className="contact-grid">
+                      {optionalContact.map(renderContactField)}
                     </div>
-                  )}
-                  {showField('phone') && (
-                    <div>
-                      <div className="field-label">Phone {reqMark('phone')}</div>
-                      <input className="input" type="tel" autoComplete="tel" inputMode="tel" value={form.phone} onChange={e => set('phone')(e.target.value)} />
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {config.features.photoUpload && (
-                <>
-                  <div className="field-label">Add a photo {reqMark('photo')}</div>
-                  <div className="photo-drop" onClick={() => fileRef.current?.click()}>
-                    {photoPreview
-                      ? <><img src={photoPreview} alt="preview" /> <span>{photo?.name}</span></>
-                      : <><span style={{ fontSize: 22 }}>📷</span> <span>Snap or choose a photo (optional, 8 MB max)</span></>}
+                    {hasSaved && (
+                      <button type="button" className="contact-clear" onClick={clearSavedContact}>
+                        Clear saved details
+                      </button>
+                    )}
                   </div>
-                  <input ref={fileRef} type="file" accept="image/*" capture="environment" hidden onChange={pickPhoto} />
-                </>
+                ) : (
+                  <button type="button" className="contact-teaser" onClick={() => setContactOpen(true)}>
+                    {contactSummary
+                      ? <><span className="ic">👤</span><span className="tx">Sending as <strong>{contactSummary}</strong>{form.group && form.name ? ` · ${form.group}` : ''}</span><span className="edit">Edit</span></>
+                      : <><span className="ic">👤</span><span className="tx">Add your name so we can follow up</span><span className="edit">Optional</span></>}
+                  </button>
+                )
               )}
 
               {error && <div className="error-note" role="alert">{error}</div>}
@@ -333,7 +394,10 @@ export default function GuestForm() {
 
       <footer className="guest-foot rise rise-3">
         <span>© {new Date().getFullYear()} {g.orgName}</span>
-        {config.features.tracking && !success && <Link to="/track">Check a submission →</Link>}
+        <span className="guest-foot__links">
+          <Link to="/how">How this works</Link>
+          {config.features.tracking && !success && <Link to="/track">Check a submission →</Link>}
+        </span>
       </footer>
     </div>
   );

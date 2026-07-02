@@ -74,15 +74,43 @@ export default function Dashboard() {
         <div className="kpi good"><div className="v">{t.compliments}</div><div className="l">Compliments 💚</div></div>
       </div>
 
-      {m.sla.enabled && (m.sla.response_overdue > 0 || m.sla.resolution_overdue > 0) && (
-        <div className="card" style={{ marginBottom: 16, borderColor: '#E5CBAE', background: 'var(--orange-soft)' }}>
-          <h3 style={{ color: '#8A4A16' }}>⏰ SLA watch</h3>
-          <p style={{ margin: 0, fontSize: 14 }}>
-            {m.sla.response_overdue > 0 && <><strong>{m.sla.response_overdue}</strong> waiting past the {m.sla.firstResponseHours}h first-response target. </>}
-            {m.sla.resolution_overdue > 0 && <><strong>{m.sla.resolution_overdue}</strong> open past the {m.sla.resolutionHours}h resolution target.</>}
-          </p>
-        </div>
-      )}
+      {m.sla.enabled && (() => {
+        const overdue = (m.sla.response_overdue || 0) + (m.sla.resolution_overdue || 0);
+        const ok = overdue === 0;
+        return (
+          <div className="card sla-card" style={{
+            marginBottom: 16,
+            borderColor: ok ? '#CBDDA9' : '#E5CBAE',
+            background: ok ? '#F2F7E6' : 'var(--orange-soft)',
+          }}>
+            <h3 style={{ color: ok ? 'var(--green-dark)' : '#8A4A16' }}>
+              {ok ? '✓ SLA — on target' : '⏰ SLA watch'}
+            </h3>
+            <div className="sla-strip">
+              <div className="sla-stat">
+                <div className="v">{m.sla.response_met_pct ?? '—'}{m.sla.response_met_pct != null && <small>%</small>}</div>
+                <div className="l">first responses within {m.sla.firstResponseHours}h · {m.rangeDays}d</div>
+              </div>
+              <div className="sla-stat">
+                <div className="v">{m.sla.resolution_met_pct ?? '—'}{m.sla.resolution_met_pct != null && <small>%</small>}</div>
+                <div className="l">resolved within {m.sla.resolutionHours}h · {m.rangeDays}d</div>
+              </div>
+              <div className="sla-note">
+                {!ok && (
+                  <p style={{ margin: '0 0 6px', fontSize: 14 }}>
+                    {m.sla.response_overdue > 0 && <><strong>{m.sla.response_overdue}</strong> waiting past the first-response target. </>}
+                    {m.sla.resolution_overdue > 0 && <><strong>{m.sla.resolution_overdue}</strong> open past the resolution target.</>}
+                  </p>
+                )}
+                <p className="muted" style={{ margin: 0 }}>
+                  Monitored by <strong>{m.accountability?.slaMonitor || 'Guest Care'}</strong>
+                  {m.accountability?.reviewCadence ? <> · {m.accountability.reviewCadence}</> : null}
+                </p>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       <div className="grid-2" style={{ marginBottom: 16 }}>
         <div className="card">

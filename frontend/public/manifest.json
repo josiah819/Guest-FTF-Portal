@@ -1,0 +1,18 @@
+{
+  "name": "WoodsVoice — Guest Care",
+  "short_name": "WoodsVoice",
+  "description": "Guest feedback and requests for Muskoka Woods. Staff: add this to your home screen for one-tap access to Guest Care HQ.",
+  "start_url": "/admin",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#F7F4EC",
+  "theme_color": "#1E5A64",
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ]
+}

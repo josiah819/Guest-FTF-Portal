@@ -18,7 +18,7 @@ router.get('/settings', aw(async (req, res) => {
 }));
 
 router.put('/settings', aw(async (req, res) => {
-  const allowed = ['general', 'fields', 'features', 'sla', 'integrations'];
+  const allowed = ['general', 'fields', 'features', 'sla', 'integrations', 'accountability'];
   const patch = {};
   for (const key of allowed) if (req.body[key] && typeof req.body[key] === 'object') patch[key] = req.body[key];
   res.json({ settings: await saveSettings(patch) });

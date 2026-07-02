@@ -4,6 +4,7 @@ import { api, getToken, setToken } from '../api';
 import Dashboard from './Dashboard';
 import Submissions from './Submissions';
 import LocationsQR from './LocationsQR';
+import Runbook from './Runbook';
 import Settings from './Settings';
 
 function Login({ onLogin }) {
@@ -52,8 +53,9 @@ function Login({ onLogin }) {
 
 const NAV = [
   { to: '/admin', end: true, icon: '📊', label: 'Dashboard' },
-  { to: '/admin/submissions', icon: '📬', label: 'Submissions' },
-  { to: '/admin/locations', icon: '📍', label: 'Locations & QR' },
+  { to: '/admin/submissions', icon: '📬', label: 'Inbox' },
+  { to: '/admin/locations', icon: '📍', label: 'QR codes' },
+  { to: '/admin/runbook', icon: '📖', label: 'Runbook' },
   { to: '/admin/settings', icon: '⚙️', label: 'Settings' },
 ];
 
@@ -86,10 +88,13 @@ export default function AdminApp() {
         <nav className="admin-nav">
           {NAV.map(n => (
             <NavLink key={n.to} to={n.to} end={n.end} className={({ isActive }) => isActive ? 'on' : ''}>
-              <span className="ic">{n.icon}</span> {n.label}
+              <span className="ic">{n.icon}</span><span className="lb">{n.label}</span>
             </NavLink>
           ))}
-          <a href="/" target="_blank" rel="noreferrer"><span className="ic">↗</span> Guest form</a>
+          <div className="admin-nav__aux">
+            <a href="/" target="_blank" rel="noreferrer"><span className="ic">↗</span><span className="lb">Guest form</span></a>
+            <a href="/how" target="_blank" rel="noreferrer"><span className="ic">✨</span><span className="lb">How it works</span></a>
+          </div>
         </nav>
         <div className="who">
           <span>👋 {who}</span>
@@ -101,6 +106,7 @@ export default function AdminApp() {
           <Route index element={<Dashboard />} />
           <Route path="submissions" element={<Submissions />} />
           <Route path="locations" element={<LocationsQR />} />
+          <Route path="runbook" element={<Runbook />} />
           <Route path="settings" element={<Settings />} />
           <Route path="*" element={<Navigate to="/admin" replace />} />
         </Routes>

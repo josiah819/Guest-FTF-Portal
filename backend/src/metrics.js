@@ -65,10 +65,24 @@ async function dashboardMetrics(days = 30) {
            count(*) FILTER (WHERE first_response_at IS NULL AND status = 'new'
              AND created_at < now() - make_interval(hours => $1))::int AS response_overdue,
            count(*) FILTER (WHERE resolved_at IS NULL AND status IN ('new','in_progress')
-             AND created_at < now() - make_interval(hours => $2))::int AS resolution_overdue
+             AND created_at < now() - make_interval(hours => $2))::int AS resolution_overdue,
+           count(*) FILTER (WHERE created_at > now() - make_interval(days => $3)
+             AND first_response_at IS NOT NULL)::int AS responded_n,
+           count(*) FILTER (WHERE created_at > now() - make_interval(days => $3)
+             AND first_response_at IS NOT NULL
+             AND first_response_at - created_at <= make_interval(hours => $1))::int AS response_met,
+           count(*) FILTER (WHERE created_at > now() - make_interval(days => $3)
+             AND resolved_at IS NOT NULL)::int AS resolved_n,
+           count(*) FILTER (WHERE created_at > now() - make_interval(days => $3)
+             AND resolved_at IS NOT NULL
+             AND resolved_at - created_at <= make_interval(hours => $2))::int AS resolution_met
          FROM submissions`,
-        [settings.sla.firstResponseHours, settings.sla.resolutionHours]) : Promise.resolve({ rows: [{}] }),
+        [settings.sla.firstResponseHours, settings.sla.resolutionHours, range]) : Promise.resolve({ rows: [{}] }),
     ]);
+
+  // "Measurement for success": % of submissions that met each SLA target.
+  const slaRow = slaBreach.rows[0] || {};
+  const pct = (met, n) => n > 0 ? Math.round((met / n) * 100) : null;
 
   return {
     rangeDays: range,
@@ -81,7 +95,14 @@ async function dashboardMetrics(days = 30) {
     byType: byType.rows,
     byUrgency: byUrgency.rows,
     hotspots: hotspots.rows,
-    sla: { ...settings.sla, ...slaBreach.rows[0], enabled: settings.features.sla },
+    sla: {
+      ...settings.sla,
+      ...slaRow,
+      response_met_pct: pct(slaRow.response_met, slaRow.responded_n),
+      resolution_met_pct: pct(slaRow.resolution_met, slaRow.resolved_n),
+      enabled: settings.features.sla,
+    },
+    accountability: settings.accountability,
     features: { hotspots: settings.features.hotspots, aiInsights: settings.features.aiInsights, csat: settings.features.csat },
   };
 }

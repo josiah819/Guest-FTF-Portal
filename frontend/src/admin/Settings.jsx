@@ -176,7 +176,8 @@ export default function Settings() {
     setSaving(true);
     try {
       const res = await api.saveSettings({
-        general: s.general, fields: s.fields, features: s.features, sla: s.sla, integrations: s.integrations,
+        general: s.general, fields: s.fields, features: s.features, sla: s.sla,
+        integrations: s.integrations, accountability: s.accountability,
       });
       setS(res.settings);
       setDirty(false);
@@ -313,6 +314,26 @@ export default function Settings() {
             <button className={`switch${s.general.showExpectationBanner ? ' on' : ''}`}
               onClick={() => patch('general', 'showExpectationBanner', !s.general.showExpectationBanner)}
               aria-label="Toggle expectation banner" />
+          </div>
+
+          <h3 style={{ marginTop: 26 }}>Accountability</h3>
+          <p className="hint">
+            Shown on the dashboard’s SLA card and the Runbook page — “who monitors this?” should never
+            depend on who you ask.
+          </p>
+          <div className="form-grid">
+            <div><label>System owner (dept or person)</label>
+              <input className="input" value={s.accountability?.systemOwner || ''}
+                onChange={e => patch('accountability', 'systemOwner', e.target.value)} /></div>
+            <div><label>App maintainer</label>
+              <input className="input" value={s.accountability?.maintainer || ''}
+                onChange={e => patch('accountability', 'maintainer', e.target.value)} /></div>
+            <div><label>SLA monitor</label>
+              <input className="input" value={s.accountability?.slaMonitor || ''}
+                onChange={e => patch('accountability', 'slaMonitor', e.target.value)} /></div>
+            <div><label>Review cadence</label>
+              <input className="input" value={s.accountability?.reviewCadence || ''}
+                onChange={e => patch('accountability', 'reviewCadence', e.target.value)} /></div>
           </div>
         </div>
       )}

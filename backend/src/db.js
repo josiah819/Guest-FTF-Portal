@@ -51,6 +51,14 @@ const DEFAULT_SETTINGS = {
   },
   sla: { firstResponseHours: 24, resolutionHours: 72 },
   integrations: { ftfWebhookUrl: '', notifyEmail: '' },
+  // Who owns what — shown on the dashboard SLA card and the Runbook page,
+  // so "who monitors this?" always has a written answer.
+  accountability: {
+    systemOwner: 'Guest Services',
+    maintainer: 'Josiah (IT)',
+    slaMonitor: 'Guest Care lead',
+    reviewCadence: 'Inbox checked morning & afternoon · dashboard reviewed Fridays',
+  },
 };
 
 function deepMerge(base, over) {

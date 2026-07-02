@@ -1,0 +1,8 @@
+# Local development / testing without the Caddy proxy:
+#   docker network create web        # once, if it doesn't exist yet
+#   docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d --build
+# then open http://localhost:8090
+services:
+  frontend:
+    ports:
+      - "8090:80"
