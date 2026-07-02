@@ -1063,7 +1063,10 @@ textarea.input { min-height: 110px; resize: vertical; }
   .drawer { padding: 22px 18px calc(30px + env(safe-area-inset-bottom)); }
   .save-bar { bottom: calc(78px + env(safe-area-inset-bottom)); }
   .toast { bottom: calc(88px + env(safe-area-inset-bottom)); max-width: calc(100vw - 32px); text-align: center; }
-  .kpi .v { font-size: 38px; }
+  .kpi-grid { grid-template-columns: 1fr 1fr; gap: 10px; }
+  .kpi { padding: 13px 14px 11px; }
+  .kpi .v { font-size: 32px; }
+  .kpi .l { font-size: 9.5px; letter-spacing: 0.1em; }
   .sub-row { padding: 13px 12px; gap: 10px; }
 }
 
@@ -1124,6 +1127,21 @@ textarea.input { min-height: 110px; resize: vertical; }
 /* urgency chips: 2×2 on small phones so labels stay readable */
 @media (max-width: 400px) {
   .urgency-row { grid-template-columns: 1fr 1fr; }
+}
+
+/* category tiles: compact 2-across rows on phones — the form should scroll
+   like a note, not a menu */
+@media (max-width: 480px) {
+  .cat-grid { grid-template-columns: 1fr 1fr; gap: 8px; }
+  .cat-tile {
+    flex-direction: row;
+    align-items: center;
+    gap: 9px;
+    min-height: 0;
+    padding: 11px 12px;
+  }
+  .cat-tile .em { font-size: 19px; }
+  .cat-tile .nm { font-size: 12px; line-height: 1.25; }
 }
 
 /* ============================================================

@@ -67,12 +67,15 @@ async function dashboardMetrics(days = 30) {
            count(*) FILTER (WHERE resolved_at IS NULL AND status IN ('new','in_progress')
              AND created_at < now() - make_interval(hours => $2))::int AS resolution_overdue,
            count(*) FILTER (WHERE created_at > now() - make_interval(days => $3)
-             AND first_response_at IS NOT NULL)::int AS responded_n,
+             AND (first_response_at IS NOT NULL
+                  OR created_at < now() - make_interval(hours => $1)))::int AS response_due_n,
            count(*) FILTER (WHERE created_at > now() - make_interval(days => $3)
              AND first_response_at IS NOT NULL
              AND first_response_at - created_at <= make_interval(hours => $1))::int AS response_met,
            count(*) FILTER (WHERE created_at > now() - make_interval(days => $3)
-             AND resolved_at IS NOT NULL)::int AS resolved_n,
+             AND (resolved_at IS NOT NULL
+                  OR (status IN ('new','in_progress')
+                      AND created_at < now() - make_interval(hours => $2))))::int AS resolution_due_n,
            count(*) FILTER (WHERE created_at > now() - make_interval(days => $3)
              AND resolved_at IS NOT NULL
              AND resolved_at - created_at <= make_interval(hours => $2))::int AS resolution_met
@@ -81,6 +84,8 @@ async function dashboardMetrics(days = 30) {
     ]);
 
   // "Measurement for success": % of submissions that met each SLA target.
+  // Denominator = handled items + items past their window with nothing done;
+  // items still inside their window aren't judged either way yet.
   const slaRow = slaBreach.rows[0] || {};
   const pct = (met, n) => n > 0 ? Math.round((met / n) * 100) : null;
 
@@ -98,8 +103,8 @@ async function dashboardMetrics(days = 30) {
     sla: {
       ...settings.sla,
       ...slaRow,
-      response_met_pct: pct(slaRow.response_met, slaRow.responded_n),
-      resolution_met_pct: pct(slaRow.resolution_met, slaRow.resolved_n),
+      response_met_pct: pct(slaRow.response_met, slaRow.response_due_n),
+      resolution_met_pct: pct(slaRow.resolution_met, slaRow.resolution_due_n),
       enabled: settings.features.sla,
     },
     accountability: settings.accountability,
