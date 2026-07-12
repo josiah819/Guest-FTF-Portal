@@ -1,6 +1,7 @@
 const express = require('express');
 const fs = require('fs');
 const { migrateAndSeed, pool } = require('./db');
+const { startScheduler } = require('./scheduler');
 
 const app = express();
 app.set('trust proxy', true);
@@ -48,6 +49,7 @@ async function start() {
       await new Promise(r => setTimeout(r, 2000));
     }
   }
+  startScheduler();
   app.listen(PORT, () => console.log(`[boot] WoodsVoice API listening on :${PORT}`));
 }
 
