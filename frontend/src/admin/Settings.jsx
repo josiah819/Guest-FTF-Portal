@@ -158,6 +158,7 @@ function Account() {
 const TAB_DEFS = [
   { id: 'Form fields', perm: 'settings.manage' },
   { id: 'Features', perm: 'settings.manage' },
+  { id: 'AI', perm: 'settings.manage' },
   { id: 'Content', perm: 'content.manage' },
   { id: 'Categories', perm: 'catalogs.manage' },
   { id: 'Departments', perm: 'catalogs.manage' },
@@ -166,7 +167,106 @@ const TAB_DEFS = [
 ];
 
 // Tabs whose edits go through the save bar (vs. instant catalog edits).
-const SAVE_TABS = ['Form fields', 'Features', 'Content', 'General'];
+const SAVE_TABS = ['Form fields', 'Features', 'AI', 'Content', 'General'];
+
+const AI_PROVIDERS = [
+  { id: 'anthropic', label: 'Anthropic API (Claude)',
+    desc: 'Best triage quality, ~a tenth of a cent per submission. Needs ANTHROPIC_API_KEY on the server.' },
+  { id: 'openai', label: 'Local / self-hosted model',
+    desc: 'Any OpenAI-compatible endpoint — Ollama on an LXC, LM Studio, vLLM. Nothing leaves your network.' },
+  { id: 'keywords', label: 'Keywords only (no AI)',
+    desc: 'Simple word matching. Also the automatic fallback whenever an AI call fails.' },
+];
+
+function AiTab({ s, patch, aiKey }) {
+  const [test, setTest] = useState(null);
+  const [testing, setTesting] = useState(false);
+  const ai = s.ai || {};
+
+  async function runTest() {
+    setTesting(true);
+    setTest(null);
+    try {
+      setTest(await api.aiTest(ai));
+    } catch (err) {
+      setTest({ ok: false, error: err.message });
+    } finally {
+      setTesting(false);
+    }
+  }
+
+  return (
+    <div className="card">
+      <h3>Triage engine</h3>
+      <p className="hint">
+        Who reads each guest note and decides its type, category, urgency and summary.
+        Whatever you pick, a failed AI call always falls back to keyword matching — the guest never notices.
+      </p>
+      {AI_PROVIDERS.map(p => (
+        <div className="toggle-row" key={p.id}>
+          <div style={{ flex: 1 }}>
+            <label style={{ display: 'flex', gap: 10, alignItems: 'baseline', cursor: 'pointer' }}>
+              <input type="radio" name="ai-provider" checked={(ai.provider || 'anthropic') === p.id}
+                onChange={() => patch('ai', 'provider', p.id)} />
+              <span>
+                <span className="t" style={{ display: 'block' }}>{p.label}
+                  {p.id === 'anthropic' && (
+                    <span className={`badge ${aiKey ? 's-resolved' : 'u-high'}`} style={{ marginLeft: 8 }}>
+                      {aiKey ? 'key detected' : 'no API key on server'}
+                    </span>
+                  )}
+                </span>
+                <span className="d" style={{ display: 'block' }}>{p.desc}</span>
+              </span>
+            </label>
+            {p.id === 'anthropic' && (ai.provider || 'anthropic') === 'anthropic' && (
+              <div className="form-grid" style={{ marginTop: 10 }}>
+                <div><label>Model</label>
+                  <input className="input" value={ai.anthropicModel || ''} placeholder="claude-haiku-4-5-20251001"
+                    onChange={e => patch('ai', 'anthropicModel', e.target.value)} /></div>
+              </div>
+            )}
+            {p.id === 'openai' && ai.provider === 'openai' && (
+              <div className="form-grid" style={{ marginTop: 10 }}>
+                <div><label>Base URL</label>
+                  <input className="input" value={ai.openaiBaseUrl || ''} placeholder="http://10.0.12.50:11434"
+                    onChange={e => patch('ai', 'openaiBaseUrl', e.target.value)} /></div>
+                <div><label>Model</label>
+                  <input className="input" value={ai.openaiModel || ''} placeholder="qwen3:4b"
+                    onChange={e => patch('ai', 'openaiModel', e.target.value)} /></div>
+                <div style={{ gridColumn: '1 / -1' }} className="hint">
+                  Point it at Ollama’s port and the /v1 path is added automatically. If your endpoint needs a key,
+                  set OPENAI_API_KEY in the server environment. First call after idle can be slow while the model
+                  loads — the test button below warms it up.
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      ))}
+
+      <div style={{ marginTop: 16, display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+        <button className="btn btn-teal btn-small" onClick={runTest} disabled={testing}>
+          {testing ? 'Testing… (cold models can take a minute)' : '⚡ Test connection'}
+        </button>
+        <span className="hint" style={{ margin: 0 }}>Runs the selected engine against a sample note — including unsaved changes above.</span>
+      </div>
+      {test && (
+        <div className={test.ok ? 'ai-line' : 'error-note'} style={{ marginTop: 12 }}>
+          {test.ok ? (
+            <span>
+              ✅ <strong>{test.engine}</strong> answered in {(test.latencyMs / 1000).toFixed(1)}s —
+              type <strong>{test.result.type}</strong>, category <strong>{test.result.category}</strong>,
+              urgency <strong>{test.result.urgency}</strong>{test.result.summary ? <> · “{test.result.summary}”</> : null}
+            </span>
+          ) : (
+            <span>❌ {test.error}</span>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
 
 export default function Settings() {
   const actor = useActor();
@@ -325,6 +425,8 @@ export default function Settings() {
           ))}
         </div>
       )}
+
+      {tab === 'AI' && <AiTab s={s} patch={patch} aiKey={aiKey} />}
 
       {tab === 'Content' && (
         <ContentTab s={s} patch={patch} patchPath={patchPath} applySettings={applySettings} setToast={setToast} />

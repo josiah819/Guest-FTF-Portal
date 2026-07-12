@@ -6,7 +6,7 @@ const { aw, clampStr, newFileName } = require('../util');
 const { requireAuth, login, changePassword } = require('../auth');
 const { attachActor, requirePerm, deptFilter, inDeptScope } = require('../rbac');
 const { dashboardMetrics, insightsInput } = require('../metrics');
-const { generateInsights, aiEnabled } = require('../classify');
+const { generateInsights, testClassify, aiEnabled } = require('../classify');
 
 const router = express.Router();
 
@@ -54,6 +54,17 @@ router.put('/settings', aw(async (req, res) => {
     return res.status(403).json({ error: 'You don’t have permission to change settings.' });
   }
   res.json({ settings: await saveSettings(patch) });
+}));
+
+// Try the chosen (possibly unsaved) AI provider against a canned message.
+// Errors come back as { ok:false, error } so the UI can show them verbatim.
+router.post('/ai/test', requirePerm('settings.manage'), aw(async (req, res) => {
+  try {
+    const out = await testClassify(req.body?.ai);
+    res.json({ ok: true, ...out });
+  } catch (err) {
+    res.json({ ok: false, error: err.message });
+  }
 }));
 
 // ---------- branding ----------

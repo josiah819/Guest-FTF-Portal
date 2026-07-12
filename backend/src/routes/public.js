@@ -74,7 +74,10 @@ router.post('/submissions', rateLimit({ windowMs: 5 * 60 * 1000, max: 12 }), upl
   }
 
   const types = ['issue', 'request', 'feedback', 'compliment'];
-  const type = settings.features.submissionTypes && types.includes(b.type) ? b.type : 'issue';
+  // 'issue' is only a placeholder when the guest didn't pick — the AI layer
+  // sets the real type afterwards (guestChoseType tells it not to).
+  const guestChoseType = settings.features.submissionTypes && types.includes(b.type);
+  const type = guestChoseType ? b.type : 'issue';
 
   let location = null;
   if (locationSlug) {
@@ -123,6 +126,7 @@ router.post('/submissions', rateLimit({ windowMs: 5 * 60 * 1000, max: 12 }), upl
         locationName: location?.name,
         guestChoseCategory: !!category,
         guestChoseUrgency,
+        guestChoseType,
       });
     }
     await forwardSubmission(id);

@@ -57,6 +57,14 @@ const DEFAULT_SETTINGS = {
     emailForward: false,      // notify integrations.notifyEmail per submission (needs SMTP env)
   },
   sla: { firstResponseHours: 24, resolutionHours: 72 },
+  // Which engine triages submissions. Secrets stay in env (ANTHROPIC_API_KEY /
+  // OPENAI_API_KEY); everything here is safe to show in the admin UI.
+  ai: {
+    provider: 'anthropic',            // 'anthropic' | 'openai' (any OpenAI-compatible endpoint) | 'keywords'
+    anthropicModel: process.env.AI_MODEL || 'claude-haiku-4-5-20251001',
+    openaiBaseUrl: '',                // e.g. http://10.0.12.50:11434 (Ollama — /v1 appended automatically)
+    openaiModel: '',                  // e.g. qwen3:4b
+  },
   integrations: { ftfWebhookUrl: '', notifyEmail: '' },
   // Who owns what — shown on the dashboard SLA card and the Runbook page,
   // so "who monitors this?" always has a written answer.
