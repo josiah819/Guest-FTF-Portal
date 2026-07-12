@@ -3,6 +3,7 @@ const fs = require('fs');
 const path = require('path');
 const bcrypt = require('bcryptjs');
 const { newPublicCode } = require('./util');
+const { ROLE_SEEDS, PERMISSION_KEYS } = require('./permissions');
 
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL ||
@@ -213,6 +214,29 @@ async function migrateAndSeed() {
         [JSON.stringify(DEFAULT_SETTINGS)]);
     }
 
+    // Roles: seed the starter set once, then keep Administrator topped up with
+    // every permission key (so new keys added in code reach existing installs),
+    // and adopt any pre-RBAC accounts as Administrators.
+    const { rows: roleRows } = await client.query('SELECT count(*)::int AS n FROM roles');
+    if (roleRows[0].n === 0) {
+      for (const r of ROLE_SEEDS) {
+        const { rows } = await client.query(
+          'INSERT INTO roles (name, is_system) VALUES ($1,$2) RETURNING id', [r.name, r.isSystem]);
+        for (const p of r.perms) {
+          await client.query('INSERT INTO role_permissions (role_id, perm) VALUES ($1,$2)', [rows[0].id, p]);
+        }
+      }
+      console.log('[seed] created starter roles');
+    }
+    await client.query(
+      `INSERT INTO role_permissions (role_id, perm)
+       SELECT r.id, k FROM roles r, unnest($1::text[]) AS k
+        WHERE r.is_system
+       ON CONFLICT DO NOTHING`, [PERMISSION_KEYS]);
+    await client.query(
+      `UPDATE users SET role_id = (SELECT id FROM roles WHERE is_system ORDER BY id LIMIT 1)
+        WHERE role_id IS NULL`);
+
     const { rows: deptRows } = await client.query('SELECT count(*)::int AS n FROM departments');
     if (deptRows[0].n === 0) {
       for (const d of SEED_DEPARTMENTS) {
@@ -230,13 +254,14 @@ async function migrateAndSeed() {
       }
     }
 
-    const { rows: adminRows } = await client.query('SELECT count(*)::int AS n FROM admins');
+    const { rows: adminRows } = await client.query('SELECT count(*)::int AS n FROM users');
     if (adminRows[0].n === 0) {
       const username = process.env.ADMIN_USERNAME || 'admin';
       const password = process.env.ADMIN_PASSWORD || 'WoodsVoice!demo';
       const hash = bcrypt.hashSync(password, 10);
       await client.query(
-        'INSERT INTO admins (username, display_name, password_hash) VALUES ($1,$2,$3)',
+        `INSERT INTO users (username, display_name, password_hash, role_id)
+         VALUES ($1,$2,$3,(SELECT id FROM roles WHERE is_system ORDER BY id LIMIT 1))`,
         [username, 'Guest Care Admin', hash]);
       console.log(`[seed] created admin account "${username}"`);
     }

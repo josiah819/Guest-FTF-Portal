@@ -37,6 +37,19 @@ export const api = {
   // admin
   login: (username, password) => request('/api/admin/login', { method: 'POST', body: { username, password } }),
   changePassword: (current, next) => request('/api/admin/change-password', { method: 'POST', body: { current, next }, auth: true }),
+  me: () => request('/api/admin/me', { auth: true }),
+
+  // team & roles
+  permissionCatalog: () => request('/api/admin/permissions', { auth: true }),
+  users: () => request('/api/admin/users', { auth: true }),
+  createUser: (body) => request('/api/admin/users', { method: 'POST', body, auth: true }),
+  updateUser: (id, body) => request(`/api/admin/users/${id}`, { method: 'PATCH', body, auth: true }),
+  resetUserPassword: (id) => request(`/api/admin/users/${id}/reset-password`, { method: 'POST', auth: true }),
+  roles: () => request('/api/admin/roles', { auth: true }),
+  createRole: (name) => request('/api/admin/roles', { method: 'POST', body: { name }, auth: true }),
+  renameRole: (id, name) => request(`/api/admin/roles/${id}`, { method: 'PATCH', body: { name }, auth: true }),
+  setRolePerms: (id, perms) => request(`/api/admin/roles/${id}/permissions`, { method: 'PUT', body: { perms }, auth: true }),
+  deleteRole: (id) => request(`/api/admin/roles/${id}`, { method: 'DELETE', auth: true }),
   settings: () => request('/api/admin/settings', { auth: true }),
   saveSettings: (patch) => request('/api/admin/settings', { method: 'PUT', body: patch, auth: true }),
   metrics: (days) => request(`/api/admin/metrics?days=${days}`, { auth: true }),

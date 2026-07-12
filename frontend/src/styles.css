@@ -1459,3 +1459,103 @@ textarea.input { min-height: 110px; resize: vertical; }
   .sop-head { flex-wrap: wrap; gap: 8px; }
   .sop-head .ttl { flex-basis: calc(100% - 80px); }
 }
+
+/* ---------- team & roles ---------- */
+
+.secret-note {
+  position: relative;
+  background: var(--teal-deep);
+  color: var(--paper);
+  border-radius: var(--r-md);
+  padding: 14px 44px 14px 16px;
+  margin-bottom: 16px;
+  font-size: 14px;
+}
+.secret-note code {
+  background: rgba(255, 255, 255, 0.14);
+  border-radius: 6px;
+  padding: 3px 8px;
+  margin-left: 8px;
+  font-family: ui-monospace, 'Cascadia Mono', Consolas, monospace;
+  letter-spacing: 0.04em;
+}
+.secret-note .close {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  border: 0;
+  background: none;
+  color: var(--paper);
+  font-size: 15px;
+  cursor: pointer;
+  opacity: 0.7;
+}
+.secret-note .close:hover { opacity: 1; }
+
+.team-add {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  align-items: center;
+  padding-bottom: 14px;
+  border-bottom: 1.5px solid var(--line);
+  margin-bottom: 6px;
+}
+.team-add .input { flex: 1; min-width: 140px; padding: 8px 10px; font-size: 13.5px; }
+.team-add select.input { flex: 0 0 150px; }
+
+.team-row { padding: 12px 0; border-bottom: 1px solid var(--line); }
+.team-row:last-child { border-bottom: 0; }
+.team-row.inactive { opacity: 0.5; }
+.team-row__main { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.team-row__main .grow { flex: 1; min-width: 140px; }
+.team-row__main .input, .team-row__sub .input { padding: 8px 10px; font-size: 13.5px; }
+.team-row__main select.input { width: 160px; flex: 0 0 auto; }
+.team-row__sub { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-top: 8px; }
+
+.dept-chips { display: flex; gap: 6px; flex-wrap: wrap; }
+.chip-mini {
+  border: 1.5px solid var(--line);
+  background: var(--card);
+  color: var(--ink-soft);
+  border-radius: 999px;
+  padding: 4px 11px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.chip-mini.on { background: var(--teal); border-color: var(--teal); color: var(--paper); }
+
+.perm-table { width: 100%; border-collapse: collapse; font-size: 13.5px; min-width: 560px; }
+.perm-table th, .perm-table td {
+  padding: 9px 10px;
+  border-bottom: 1px solid var(--line);
+  text-align: center;
+  vertical-align: top;
+}
+.perm-table th { font-family: var(--font-head); font-size: 13px; }
+.perm-table th .role-name { padding: 6px 8px; font-size: 13px; max-width: 130px; text-align: center; }
+.perm-table .pl { text-align: left; }
+.perm-table .grp td {
+  background: var(--paper-dim);
+  font-family: var(--font-head);
+  font-weight: 700;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--ink-soft);
+  padding: 7px 10px;
+}
+.perm-table .pt { font-weight: 600; }
+.perm-table .pd { font-size: 12px; color: var(--ink-faint); max-width: 34ch; }
+.perm-table input[type='checkbox'] { width: 17px; height: 17px; accent-color: var(--teal); cursor: pointer; }
+.perm-table input[type='checkbox']:disabled { cursor: not-allowed; }
+.link-danger {
+  border: 0;
+  background: none;
+  color: var(--red);
+  font-size: 11.5px;
+  cursor: pointer;
+  margin-left: 6px;
+  text-decoration: underline;
+}
