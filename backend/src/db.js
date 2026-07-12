@@ -523,8 +523,11 @@ async function migrateAndSeed() {
 
     // Demo teammates: one per starter role, so the Team page and dept scoping
     // have something to show. Same demo password as the admin account.
+    // Fresh installs only — an upgraded database (which has submissions but a
+    // lone admin) must never silently gain extra login-able accounts.
+    const { rows: preSubCount } = await client.query('SELECT count(*)::int AS n FROM submissions');
     const { rows: userCount } = await client.query('SELECT count(*)::int AS n FROM users');
-    if (userCount[0].n === 1 && (process.env.SEED_DEMO_DATA || 'true') === 'true') {
+    if (preSubCount[0].n === 0 && userCount[0].n === 1 && (process.env.SEED_DEMO_DATA || 'true') === 'true') {
       const demoHash = bcrypt.hashSync(process.env.ADMIN_PASSWORD || 'WoodsVoice!demo', 10);
       const DEMO_USERS = [
         { username: 'jake', name: 'Jake R (Facilities lead)', role: 'Department Lead', depts: ['Facilities & Maintenance'] },
