@@ -59,7 +59,8 @@ export const api = {
     return request('/api/admin/branding/logo', { method: 'POST', formData: fd, auth: true });
   },
   aiTest: (ai) => request('/api/admin/ai/test', { method: 'POST', body: { ai }, auth: true }),
-  metrics: (days) => request(`/api/admin/metrics?days=${days}`, { auth: true }),
+  metrics: (days, department) =>
+    request(`/api/admin/metrics?days=${days}${department ? `&department=${department}` : ''}`, { auth: true }),
   insights: () => request('/api/admin/insights', { method: 'POST', auth: true }),
   submissions: (params) => request(`/api/admin/submissions?${new URLSearchParams(params)}`, { auth: true }),
   submission: (id) => request(`/api/admin/submissions/${id}`, { auth: true }),

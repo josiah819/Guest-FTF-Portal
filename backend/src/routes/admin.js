@@ -280,7 +280,10 @@ router.post('/submissions/:id/notes', requirePerm('submissions.respond'), aw(asy
 // ---------- metrics & insights ----------
 
 router.get('/metrics', requirePerm('metrics.view_all', 'metrics.view_dept'), aw(async (req, res) => {
-  res.json(await dashboardMetrics(req.query.days));
+  res.json(await dashboardMetrics(req.query.days, {
+    actor: req.actor,
+    department: req.query.department,
+  }));
 }));
 
 router.post('/insights', requirePerm('insights.run'), aw(async (req, res) => {
@@ -293,17 +296,30 @@ router.post('/insights', requirePerm('insights.run'), aw(async (req, res) => {
 router.get('/export.csv', requirePerm('export.csv'), aw(async (req, res) => {
   const settings = await getSettings();
   if (!settings.features.csvExport) return res.status(400).json({ error: 'CSV export is disabled in Settings.' });
+  const where = [];
+  const params = [];
+  deptFilter(req.actor, 'submissions.view_all', where, params, 1);
   const { rows } = await pool.query(
     `SELECT s.public_code, s.created_at, s.type, s.status, s.urgency,
             c.name AS category, d.name AS department,
+            au.display_name AS assigned_to,
             coalesce(l.name, s.location_text) AS location,
-            s.message, s.ai_summary, s.guest_name, s.guest_email, s.guest_phone, s.group_name,
-            s.first_response_at, s.resolved_at, s.rating, s.source
+            s.message, s.ai_summary, s.triage_via,
+            s.guest_name, s.guest_email, s.guest_phone, s.group_name,
+            s.sla_start_at, s.first_response_due_at, s.first_response_at,
+            s.resolution_due_at, s.resolved_at,
+            (s.response_breached_at IS NOT NULL) AS response_breached,
+            (s.resolution_breached_at IS NOT NULL) AS resolution_breached,
+            rd.name AS rerouted_from, s.held_until,
+            s.rating, s.source
        FROM submissions s
        LEFT JOIN categories c ON c.id = s.category_id
        LEFT JOIN departments d ON d.id = s.department_id
+       LEFT JOIN users au ON au.id = s.assigned_user_id
+       LEFT JOIN departments rd ON rd.id = s.rerouted_from_department_id
        LEFT JOIN locations l ON l.id = s.location_id
-      ORDER BY s.created_at DESC`);
+      ${where.length ? 'WHERE ' + where.join(' AND ') : ''}
+      ORDER BY s.created_at DESC`, params);
   const cols = Object.keys(rows[0] || { empty: '' });
   const esc = (v) => v == null ? '' : `"${String(v instanceof Date ? v.toISOString() : v).replace(/"/g, '""')}"`;
   const csv = [cols.join(','), ...rows.map(r => cols.map(c => esc(r[c])).join(','))].join('\r\n');

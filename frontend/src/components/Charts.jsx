@@ -72,6 +72,49 @@ export function BarList({ rows, green, labelKey = 'label', emojiKey }) {
   );
 }
 
+// Weekly SLA compliance: two percent lines (first response + resolution).
+export function TrendChart({ rows, height = 170 }) {
+  if (!rows?.length) return <div className="muted">No data yet.</div>;
+  const w = 640;
+  const h = height;
+  const padX = 6;
+  const padY = 18;
+  const stepX = (w - padX * 2) / Math.max(rows.length - 1, 1);
+  const y = (pct) => h - padY - (pct / 100) * (h - padY * 2);
+  const lineFor = (key) => {
+    const pts = rows.map((r, i) => [padX + i * stepX, r[key]]).filter(([, v]) => v != null);
+    if (!pts.length) return null;
+    return {
+      path: pts.map(([x, v], i) => `${i === 0 ? 'M' : 'L'} ${x} ${y(v)}`).join(' '),
+      pts,
+    };
+  };
+  const resp = lineFor('response_pct');
+  const reso = lineFor('resolution_pct');
+
+  return (
+    <div>
+      <svg viewBox={`0 0 ${w} ${h}`} width="100%" height={h} preserveAspectRatio="none" role="img" aria-label="SLA compliance trend">
+        {[0, 50, 100].map(v => (
+          <g key={v}>
+            <line x1={padX} x2={w - padX} y1={y(v)} y2={y(v)} stroke="#E2DDD2" strokeDasharray="3 5" />
+            <text x={padX} y={y(v) - 4} fontFamily="Montserrat" fontSize="10" fill="#7D8E92">{v}%</text>
+          </g>
+        ))}
+        {resp && <path d={resp.path} fill="none" stroke="#1E5A64" strokeWidth="2.5" strokeLinecap="round" />}
+        {reso && <path d={reso.path} fill="none" stroke="#C26628" strokeWidth="2.5" strokeLinecap="round" strokeDasharray="6 5" />}
+        {resp && rows.length <= 30 && resp.pts.map(([x, v], i) => <circle key={i} cx={x} cy={y(v)} r="3" fill="#1E5A64" />)}
+        {reso && rows.length <= 30 && reso.pts.map(([x, v], i) => <circle key={i} cx={x} cy={y(v)} r="3" fill="#C26628" />)}
+      </svg>
+      <div className="chart-tip" style={{ display: 'flex', gap: 16 }}>
+        <span><span style={{ color: '#1E5A64' }}>●</span> first response within target</span>
+        <span><span style={{ color: '#C26628' }}>●</span> resolved within target</span>
+        <span style={{ marginLeft: 'auto' }}>{rows[0]?.week?.slice(5)} → {rows[rows.length - 1]?.week?.slice(5)} (weekly)</span>
+      </div>
+    </div>
+  );
+}
+
 const DONUT_COLOURS = ['#1E5A64', '#A3CD42', '#C26628', '#1087A3', '#1F6331', '#8E867A'];
 
 export function Donut({ rows, size = 150, labelMap = {} }) {
