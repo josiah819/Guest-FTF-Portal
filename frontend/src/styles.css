@@ -1622,3 +1622,44 @@ textarea.input { min-height: 110px; resize: vertical; }
 }
 .logo-slot__preview.dark { background: var(--teal-deep); }
 .logo-slot__preview img { max-height: 48px; }
+
+/* ---------- routing / hours ---------- */
+
+.route-info {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  background: var(--teal-mist);
+  border-radius: var(--r-sm);
+  padding: 10px 12px;
+  font-size: 13px;
+  color: var(--teal-dark);
+  margin: 10px 0 4px;
+}
+.route-info .overdue { color: var(--red); font-weight: 700; }
+
+.dept-routing {
+  border: 1.5px dashed var(--line);
+  border-radius: var(--r-md);
+  padding: 14px 16px;
+  margin: 4px 0 14px;
+  background: var(--paper-dim);
+}
+.hours-grid { margin: 4px 0 12px; }
+.hours-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 3px 0;
+}
+.hours-row__day {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 120px;
+  font-size: 13.5px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.hours-row__times { display: flex; align-items: center; gap: 6px; }
+.hours-row__times .input { padding: 5px 8px; font-size: 13px; width: 108px; }

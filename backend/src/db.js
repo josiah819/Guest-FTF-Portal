@@ -56,7 +56,19 @@ const DEFAULT_SETTINGS = {
     ftfForward: false,        // POST each submission to the FTF webhook below
     emailForward: false,      // notify integrations.notifyEmail per submission (needs SMTP env)
   },
-  sla: { firstResponseHours: 24, resolutionHours: 72 },
+  sla: {
+    firstResponseHours: 24,
+    resolutionHours: 72,
+    warnPct: 80,              // scheduler warns a department at this % of the window
+    // Per-urgency overrides (null = use the global numbers). Department
+    // overrides on the Departments tab beat these.
+    urgency: {
+      safety: { firstResponseHours: 2, resolutionHours: 12 },
+      high: { firstResponseHours: 8, resolutionHours: 24 },
+      normal: null,
+      low: null,
+    },
+  },
   // Which engine triages submissions. Secrets stay in env (ANTHROPIC_API_KEY /
   // OPENAI_API_KEY); everything here is safe to show in the admin UI.
   ai: {
@@ -423,6 +435,18 @@ async function migrateAndSeed() {
       await seedDemoSubmissions(client);
       console.log('[seed] loaded demo submissions');
     }
+
+    // SLA backfill: rows from before the hours-aware clock (or that slipped
+    // through routing) get wall-clock due dates from the global targets.
+    const { rows: slaSet } = await client.query('SELECT data FROM app_settings WHERE id = 1');
+    const slaCfg = slaSet[0]?.data?.sla || {};
+    await client.query(
+      `UPDATE submissions SET
+         sla_start_at = created_at,
+         first_response_due_at = created_at + make_interval(hours => $1),
+         resolution_due_at = created_at + make_interval(hours => $2)
+       WHERE sla_start_at IS NULL`,
+      [slaCfg.firstResponseHours || 24, slaCfg.resolutionHours || 72]);
 
     await client.query('COMMIT');
   } catch (e) {

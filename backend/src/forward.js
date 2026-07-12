@@ -4,6 +4,7 @@
 // test endpoint) and every new submission is POSTed there as JSON.
 
 const { pool, getSettings } = require('./db');
+const { notify } = require('./notify');
 
 async function forwardSubmission(submissionId) {
   try {
@@ -49,10 +50,13 @@ async function forwardSubmission(submissionId) {
     }
 
     if (settings.features.emailForward && settings.integrations.notifyEmail) {
-      // No SMTP server in this stack — record the notification so the trail is visible.
-      await pool.query(
-        `INSERT INTO submission_events (submission_id, kind, detail) VALUES ($1,'forward',$2)`,
-        [submissionId, `Email notification queued for ${settings.integrations.notifyEmail} (${s.department_name || 'unassigned'})`]);
+      // Sends for real when SMTP is configured; logs a timeline event otherwise.
+      await notify({
+        submissionId,
+        to: settings.integrations.notifyEmail,
+        subject: `[WoodsVoice] New ${s.urgency} ${s.type} — ${s.public_code} (${s.department_name || 'unassigned'})`,
+        text: `${s.ai_summary || s.message}\n\nLocation: ${s.location_name || s.location_text || 'not given'}\nGuest: ${s.guest_name || 'anonymous'}${s.group_name ? ` (${s.group_name})` : ''}\n\nOpen it: /admin/submissions`,
+      });
     }
   } catch (err) {
     console.error('[forward] error:', err.message);

@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { api } from '../api';
 import { useActor } from './AdminApp';
 import ContentTab from './ContentTab';
+import DeptRoutingEditor from './DeptRoutingEditor';
 
 const FIELD_DEFS = [
   { key: 'location', label: 'Location', hint: 'Pre-filled automatically when guests arrive via a location QR code; the picker only shows without one.' },
@@ -43,9 +44,10 @@ function Tri({ value, onChange }) {
   );
 }
 
-function CatalogEditor({ table, departments }) {
+function CatalogEditor({ table, departments, canRouting, assignees, setToast }) {
   const [rows, setRows] = useState(null);
   const [draft, setDraft] = useState({ name: '', emoji: '📝', email: '', departmentId: '' });
+  const [openRouting, setOpenRouting] = useState(null);
   const load = () => api.catalog(table).then(d => setRows(d.rows));
   useEffect(() => { load(); /* eslint-disable-line react-hooks/exhaustive-deps */ }, [table]);
 
@@ -93,26 +95,38 @@ function CatalogEditor({ table, departments }) {
         <button className="btn btn-teal btn-small" type="submit">+ Add</button>
       </form>
       {rows.map(r => (
-        <div className={`cat-row${r.active ? '' : ' inactive'}`} key={r.id}>
-          {table === 'categories' && (
-            <input className="input" style={{ width: 56, textAlign: 'center' }} defaultValue={r.emoji}
-              onBlur={e => e.target.value !== r.emoji && update(r.id, { emoji: e.target.value })} />
+        <React.Fragment key={r.id}>
+          <div className={`cat-row${r.active ? '' : ' inactive'}`}>
+            {table === 'categories' && (
+              <input className="input" style={{ width: 56, textAlign: 'center' }} defaultValue={r.emoji}
+                onBlur={e => e.target.value !== r.emoji && update(r.id, { emoji: e.target.value })} />
+            )}
+            <input className="input grow" defaultValue={r.name}
+              onBlur={e => e.target.value !== r.name && update(r.id, { name: e.target.value })} />
+            {table === 'categories' ? (
+              <select className="input" style={{ width: 190 }} value={r.department_id || ''}
+                onChange={e => update(r.id, { departmentId: e.target.value || null })}>
+                <option value="">No department</option>
+                {departments.filter(d => d.active).map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
+              </select>
+            ) : (
+              <input className="input" style={{ width: 190 }} placeholder="email" defaultValue={r.email}
+                onBlur={e => e.target.value !== r.email && update(r.id, { email: e.target.value })} />
+            )}
+            {table === 'departments' && canRouting && (
+              <button className="btn btn-ghost btn-small" style={{ flexShrink: 0 }}
+                onClick={() => setOpenRouting(openRouting === r.id ? null : r.id)}>
+                🕐 {r.hours ? 'Hours set' : '24/7'}{openRouting === r.id ? ' ▾' : ''}
+              </button>
+            )}
+            <button className={`switch${r.active ? ' on' : ''}`} title={r.active ? 'Active' : 'Hidden'}
+              onClick={() => update(r.id, { active: !r.active })} aria-label="Toggle active" />
+          </div>
+          {table === 'departments' && canRouting && openRouting === r.id && (
+            <DeptRoutingEditor dept={r} departments={rows} assignees={assignees}
+              onSaved={() => load()} setToast={setToast} />
           )}
-          <input className="input grow" defaultValue={r.name}
-            onBlur={e => e.target.value !== r.name && update(r.id, { name: e.target.value })} />
-          {table === 'categories' ? (
-            <select className="input" style={{ width: 190 }} value={r.department_id || ''}
-              onChange={e => update(r.id, { departmentId: e.target.value || null })}>
-              <option value="">No department</option>
-              {departments.filter(d => d.active).map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
-            </select>
-          ) : (
-            <input className="input" style={{ width: 190 }} placeholder="email" defaultValue={r.email}
-              onBlur={e => e.target.value !== r.email && update(r.id, { email: e.target.value })} />
-          )}
-          <button className={`switch${r.active ? ' on' : ''}`} title={r.active ? 'Active' : 'Hidden'}
-            onClick={() => update(r.id, { active: !r.active })} aria-label="Toggle active" />
-        </div>
+        </React.Fragment>
       ))}
     </div>
   );
@@ -280,9 +294,12 @@ export default function Settings() {
   const [saving, setSaving] = useState(false);
   const [toast, setToast] = useState('');
 
+  const [assignees, setAssignees] = useState([]);
+
   useEffect(() => {
     api.settings().then(d => { setS(d.settings); setAiKey(d.aiKeyPresent); });
     api.catalog('departments').then(d => setDepartments(d.rows));
+    api.assignees().then(d => setAssignees(d.rows)).catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -393,19 +410,54 @@ export default function Settings() {
                 <div className="t">{f.label} {f.ai && !aiKey && <span className="badge u-high" style={{ marginLeft: 6 }}>needs an AI provider for full power</span>}</div>
                 <div className="d">{f.desc}</div>
                 {f.extra === 'sla' && s.features.sla && (
-                  <div style={{ display: 'flex', gap: 10, marginTop: 10, flexWrap: 'wrap' }}>
-                    <label className="muted" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                      First response within
-                      <input className="input" type="number" min="1" style={{ width: 76, padding: '6px 8px' }}
-                        value={s.sla.firstResponseHours}
-                        onChange={e => patch('sla', 'firstResponseHours', parseInt(e.target.value, 10) || 24)} /> h
-                    </label>
-                    <label className="muted" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                      Resolve within
-                      <input className="input" type="number" min="1" style={{ width: 76, padding: '6px 8px' }}
-                        value={s.sla.resolutionHours}
-                        onChange={e => patch('sla', 'resolutionHours', parseInt(e.target.value, 10) || 72)} /> h
-                    </label>
+                  <div style={{ marginTop: 10 }}>
+                    <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+                      <label className="muted" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                        First response within
+                        <input className="input" type="number" min="1" style={{ width: 76, padding: '6px 8px' }}
+                          value={s.sla.firstResponseHours}
+                          onChange={e => patch('sla', 'firstResponseHours', parseInt(e.target.value, 10) || 24)} /> h
+                      </label>
+                      <label className="muted" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                        Resolve within
+                        <input className="input" type="number" min="1" style={{ width: 76, padding: '6px 8px' }}
+                          value={s.sla.resolutionHours}
+                          onChange={e => patch('sla', 'resolutionHours', parseInt(e.target.value, 10) || 72)} /> h
+                      </label>
+                      <label className="muted" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                        Warn departments at
+                        <input className="input" type="number" min="10" max="100" style={{ width: 70, padding: '6px 8px' }}
+                          value={s.sla.warnPct ?? 80}
+                          onChange={e => patch('sla', 'warnPct', Math.min(Math.max(parseInt(e.target.value, 10) || 80, 10), 100))} /> % of the window
+                      </label>
+                    </div>
+                    <div className="muted" style={{ fontSize: 12.5, margin: '10px 0 4px' }}>
+                      Per-urgency overrides (blank = the numbers above; per-department overrides on the Departments tab beat both):
+                    </div>
+                    {['safety', 'high', 'normal', 'low'].map(level => {
+                      const cur = (s.sla.urgency || {})[level] || {};
+                      const setUrg = (key) => (e) => {
+                        const v = e.target.value ? parseInt(e.target.value, 10) : null;
+                        const next = { ...cur, [key]: v };
+                        const empty = !next.firstResponseHours && !next.resolutionHours;
+                        patchPath('sla', ['urgency', level], empty ? null : next);
+                      };
+                      return (
+                        <div key={level} style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 4 }}>
+                          <span className={`badge u-${level}`} style={{ width: 64, textAlign: 'center' }}>{level}</span>
+                          <label className="muted" style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 13 }}>
+                            respond
+                            <input className="input" type="number" min="1" placeholder="—" style={{ width: 66, padding: '5px 7px' }}
+                              value={cur.firstResponseHours || ''} onChange={setUrg('firstResponseHours')} /> h
+                          </label>
+                          <label className="muted" style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 13 }}>
+                            resolve
+                            <input className="input" type="number" min="1" placeholder="—" style={{ width: 66, padding: '5px 7px' }}
+                              value={cur.resolutionHours || ''} onChange={setUrg('resolutionHours')} /> h
+                          </label>
+                        </div>
+                      );
+                    })}
                   </div>
                 )}
                 {f.extra === 'ftf' && s.features.ftfForward && (
@@ -432,8 +484,11 @@ export default function Settings() {
         <ContentTab s={s} patch={patch} patchPath={patchPath} applySettings={applySettings} setToast={setToast} />
       )}
 
-      {tab === 'Categories' && <CatalogEditor table="categories" departments={departments} />}
-      {tab === 'Departments' && <CatalogEditor table="departments" departments={departments} />}
+      {tab === 'Categories' && <CatalogEditor table="categories" departments={departments} setToast={setToast} />}
+      {tab === 'Departments' && (
+        <CatalogEditor table="departments" departments={departments} setToast={setToast}
+          canRouting={actor.can('routing.manage')} assignees={assignees} />
+      )}
 
       {tab === 'General' && (
         <div className="card">

@@ -7,6 +7,7 @@ const { requireAuth, login, changePassword } = require('../auth');
 const { attachActor, requirePerm, deptFilter, inDeptScope } = require('../rbac');
 const { dashboardMetrics, insightsInput } = require('../metrics');
 const { generateInsights, testClassify, aiEnabled } = require('../classify');
+const { recomputeDueDates } = require('../routing');
 
 const router = express.Router();
 
@@ -136,11 +137,14 @@ router.get('/submissions', requirePerm(...VIEW_SUBMISSIONS), aw(async (req, res)
 router.get('/submissions/:id', requirePerm(...VIEW_SUBMISSIONS), aw(async (req, res) => {
   const id = parseInt(req.params.id, 10);
   const { rows } = await pool.query(
-    `SELECT s.*, c.name AS category, c.emoji AS category_emoji, d.name AS department, l.name AS location
+    `SELECT s.*, c.name AS category, c.emoji AS category_emoji, d.name AS department, l.name AS location,
+            au.display_name AS assigned_name, rd.name AS rerouted_from
        FROM submissions s
        LEFT JOIN categories c ON c.id = s.category_id
        LEFT JOIN departments d ON d.id = s.department_id
        LEFT JOIN locations l ON l.id = s.location_id
+       LEFT JOIN users au ON au.id = s.assigned_user_id
+       LEFT JOIN departments rd ON rd.id = s.rerouted_from_department_id
       WHERE s.id = $1`, [id]);
   if (!rows.length || !inDeptScope(req.actor, 'submissions.view_all', rows[0].department_id)) {
     return res.status(404).json({ error: 'Not found' });
@@ -219,6 +223,16 @@ router.patch('/submissions/:id', requirePerm(...VIEW_SUBMISSIONS), aw(async (req
     sets.push(`urgency = $${i++}`); params.push(req.body.urgency);
     log.push({ kind: 'assign', detail: `Urgency set to ${req.body.urgency}`, isPublic: false });
   }
+  if (req.body.assignedUserId !== undefined) {
+    const userId = req.body.assignedUserId ? parseInt(req.body.assignedUserId, 10) : null;
+    sets.push(`assigned_user_id = $${i++}`); params.push(userId);
+    if (userId) {
+      const { rows: u } = await pool.query('SELECT display_name FROM users WHERE id = $1', [userId]);
+      log.push({ kind: 'assign', detail: `Assigned to ${u[0]?.display_name || 'a staff member'}`, isPublic: false });
+    } else {
+      log.push({ kind: 'assign', detail: 'Assignee cleared', isPublic: false });
+    }
+  }
 
   if (sets.length) {
     params.push(id);
@@ -231,8 +245,20 @@ router.patch('/submissions/:id', requirePerm(...VIEW_SUBMISSIONS), aw(async (req
     // First staff touch of any kind counts as first response.
     await pool.query(
       `UPDATE submissions SET first_response_at = now() WHERE id = $1 AND first_response_at IS NULL`, [id]);
+    // A human moved or regraded it: re-derive due dates, stop waiting on hours.
+    if (req.body.urgency !== undefined || req.body.departmentId !== undefined) {
+      await recomputeDueDates(id);
+    }
   }
   res.json({ ok: true });
+}));
+
+// Active users, for assignee and on-call pickers. Any signed-in staff may see
+// the roster — it's names only, no roles or contact details.
+router.get('/assignees', aw(async (req, res) => {
+  const { rows } = await pool.query(
+    `SELECT id, display_name FROM users WHERE active ORDER BY lower(display_name)`);
+  res.json({ rows });
 }));
 
 router.post('/submissions/:id/notes', requirePerm('submissions.respond'), aw(async (req, res) => {
@@ -333,6 +359,75 @@ function catalogRoutes(table, { mapIn, orderBy, hasSlug }) {
 }
 
 const slugify = (s) => clampStr(s, 80).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'item';
+
+// ---------- department hours & routing ----------
+
+const DAY_KEYS = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
+
+// {"mon":["08:00","20:00"],…}; invalid windows drop to closed; all-closed
+// (or null) means "no hours set" = always open. Overnight windows (start >
+// end) are rejected by the start<end check — one window per day, same-day.
+function cleanHours(input) {
+  if (input == null || typeof input !== 'object') return null;
+  const out = {};
+  let any = false;
+  for (const day of DAY_KEYS) {
+    const w = input[day];
+    if (Array.isArray(w) && w.length === 2 &&
+        /^([01]\d|2[0-3]):[0-5]\d$/.test(w[0]) && /^([01]\d|2[0-3]):[0-5]\d$/.test(w[1]) &&
+        w[0] < w[1]) {
+      out[day] = [w[0], w[1]];
+      any = true;
+    } else {
+      out[day] = null;
+    }
+  }
+  return any ? out : null;
+}
+
+router.patch('/departments/:id/routing', requirePerm('routing.manage'), aw(async (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  const { rows: existing } = await pool.query('SELECT id FROM departments WHERE id = $1', [id]);
+  if (!existing.length) return res.status(404).json({ error: 'Not found' });
+
+  const b = req.body || {};
+  const sets = [];
+  const params = [];
+  let i = 1;
+
+  if ('hours' in b) { sets.push(`hours = $${i++}`); params.push(JSON.stringify(cleanHours(b.hours))); }
+  if ('afterHours' in b) {
+    if (!['hold', 'reroute', 'urgency_based'].includes(b.afterHours)) {
+      return res.status(400).json({ error: 'after-hours policy must be hold, reroute, or urgency_based.' });
+    }
+    sets.push(`after_hours = $${i++}`); params.push(b.afterHours);
+  }
+  if ('fallbackDepartmentId' in b) {
+    const fb = b.fallbackDepartmentId ? parseInt(b.fallbackDepartmentId, 10) : null;
+    if (fb === id) return res.status(400).json({ error: 'A department can’t fall back to itself.' });
+    sets.push(`fallback_department_id = $${i++}`); params.push(fb);
+  }
+  if ('onCallUserId' in b) {
+    sets.push(`on_call_user_id = $${i++}`);
+    params.push(b.onCallUserId ? parseInt(b.onCallUserId, 10) : null);
+  }
+  if ('slaResponseHours' in b) {
+    const v = b.slaResponseHours ? parseInt(b.slaResponseHours, 10) : null;
+    if (v !== null && !(v >= 1 && v <= 720)) return res.status(400).json({ error: 'SLA hours must be 1–720.' });
+    sets.push(`sla_response_hours = $${i++}`); params.push(v);
+  }
+  if ('slaResolutionHours' in b) {
+    const v = b.slaResolutionHours ? parseInt(b.slaResolutionHours, 10) : null;
+    if (v !== null && !(v >= 1 && v <= 720)) return res.status(400).json({ error: 'SLA hours must be 1–720.' });
+    sets.push(`sla_resolution_hours = $${i++}`); params.push(v);
+  }
+  if (!sets.length) return res.json({ ok: true });
+
+  params.push(id);
+  const { rows } = await pool.query(
+    `UPDATE departments SET ${sets.join(', ')} WHERE id = $${i} RETURNING *`, params);
+  res.json({ row: rows[0] });
+}));
 
 catalogRoutes('categories', {
   orderBy: 'sort, name',

@@ -4,6 +4,7 @@ const path = require('path');
 const { pool, getSettings } = require('../db');
 const { aw, clampStr, newPublicCode, newFileName, rateLimit } = require('../util');
 const { classifySubmission } = require('../classify');
+const { routeSubmission } = require('../routing');
 const { forwardSubmission } = require('../forward');
 
 const router = express.Router();
@@ -118,7 +119,9 @@ router.post('/submissions', rateLimit({ windowMs: 5 * 60 * 1000, max: 12 }), upl
     `INSERT INTO submission_events (submission_id, kind, detail, is_public)
      VALUES ($1,'created','Submission received',true)`, [id]);
 
-  // Async pipeline: AI triage, then forwarding. Guest never waits on either.
+  // Async pipeline: triage → hours-aware routing → forwarding. The guest never
+  // waits on any of it; routing runs even with AI triage off so the SLA clock
+  // and after-hours policies always apply.
   const pipeline = async () => {
     if (settings.features.aiCategorization) {
       await classifySubmission(id, {
@@ -129,6 +132,7 @@ router.post('/submissions', rateLimit({ windowMs: 5 * 60 * 1000, max: 12 }), upl
         guestChoseType,
       });
     }
+    await routeSubmission(id);
     await forwardSubmission(id);
   };
   pipeline().catch(err => console.error('[pipeline]', err.message));

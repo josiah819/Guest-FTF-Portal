@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { api, getToken } from '../api';
+import { useActor } from './AdminApp';
 
 const STATUSES = [
   { id: 'new', label: 'New' },
@@ -16,7 +17,15 @@ function timeAgo(date) {
   return `${Math.floor(s / 86400)}d ago`;
 }
 
-function Drawer({ id, departments, categories, onClose, onChanged }) {
+function fmtWhen(ts) {
+  return new Date(ts).toLocaleString('en-CA', { weekday: 'short', hour: 'numeric', minute: '2-digit', month: 'short', day: 'numeric' });
+}
+
+function Drawer({ id, departments, categories, assignees, onClose, onChanged }) {
+  const actor = useActor();
+  const canAssign = actor.can('submissions.assign');
+  const canRespond = actor.can('submissions.respond');
+  const canClose = actor.can('submissions.close');
   const [data, setData] = useState(null);
   const [note, setNote] = useState('');
   const [busy, setBusy] = useState(false);
@@ -71,6 +80,18 @@ function Drawer({ id, departments, categories, onClose, onChanged }) {
 
         <div className="msg-full">{s.message}</div>
         {s.ai_summary && <div className="ai-line"><span>✨</span><span><strong>AI summary:</strong> {s.ai_summary}</span></div>}
+
+        {(s.held_until || s.rerouted_from || (s.first_response_due_at && !s.first_response_at && ['new', 'in_progress'].includes(s.status))) && (
+          <div className="route-info">
+            {s.held_until && <span>⏸ Held for opening — SLA clock starts {fmtWhen(s.held_until)}</span>}
+            {s.rerouted_from && <span>🧭 Rerouted from {s.rerouted_from} (after hours)</span>}
+            {!s.held_until && s.first_response_due_at && !s.first_response_at && ['new', 'in_progress'].includes(s.status) && (
+              <span className={new Date(s.first_response_due_at) < new Date() ? 'overdue' : ''}>
+                ⏱ First response due {fmtWhen(s.first_response_due_at)}
+              </span>
+            )}
+          </div>
+        )}
         {s.photo_path && (
           <a href={s.photo_path} target="_blank" rel="noreferrer">
             <img src={s.photo_path} alt="Guest photo" style={{ borderRadius: 12, maxHeight: 220 }} />
@@ -87,20 +108,25 @@ function Drawer({ id, departments, categories, onClose, onChanged }) {
 
         <div className="field-label" style={{ marginTop: 10 }}>Status</div>
         <div className="status-row">
-          {STATUSES.map(st => (
-            <button
-              key={st.id}
-              className={`btn btn-small ${s.status === st.id ? 'btn-teal' : 'btn-ghost'}`}
-              disabled={busy || s.status === st.id}
-              onClick={() => patch({ status: st.id })}
-            >{st.label}</button>
-          ))}
+          {STATUSES.map(st => {
+            const touchesClosed = ['resolved', 'closed'].includes(st.id) || ['resolved', 'closed'].includes(s.status);
+            const allowed = touchesClosed ? canClose : canRespond;
+            return (
+              <button
+                key={st.id}
+                className={`btn btn-small ${s.status === st.id ? 'btn-teal' : 'btn-ghost'}`}
+                disabled={busy || s.status === st.id || !allowed}
+                title={allowed ? undefined : 'Your role can’t change this status'}
+                onClick={() => patch({ status: st.id })}
+              >{st.label}</button>
+            );
+          })}
         </div>
 
         <div className="form-grid" style={{ marginTop: 6 }}>
           <div>
             <div className="field-label">Department</div>
-            <select className="input" value={s.department_id || ''} disabled={busy}
+            <select className="input" value={s.department_id || ''} disabled={busy || !canAssign}
               onChange={e => patch({ departmentId: e.target.value || null })}>
               <option value="">Unassigned</option>
               {departments.filter(d => d.active).map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
@@ -108,10 +134,18 @@ function Drawer({ id, departments, categories, onClose, onChanged }) {
           </div>
           <div>
             <div className="field-label">Category</div>
-            <select className="input" value={s.category_id || ''} disabled={busy}
+            <select className="input" value={s.category_id || ''} disabled={busy || !canAssign}
               onChange={e => patch({ categoryId: e.target.value || null })}>
               <option value="">Uncategorized</option>
               {categories.filter(c => c.active).map(c => <option key={c.id} value={c.id}>{c.emoji} {c.name}</option>)}
+            </select>
+          </div>
+          <div>
+            <div className="field-label">Assigned to</div>
+            <select className="input" value={s.assigned_user_id || ''} disabled={busy || !canAssign}
+              onChange={e => patch({ assignedUserId: e.target.value || null })}>
+              <option value="">Nobody</option>
+              {assignees.map(u => <option key={u.id} value={u.id}>{u.display_name}</option>)}
             </select>
           </div>
         </div>
@@ -121,7 +155,7 @@ function Drawer({ id, departments, categories, onClose, onChanged }) {
           {['low', 'normal', 'high', 'safety'].map(u => (
             <button key={u}
               className={`btn btn-small ${s.urgency === u ? 'btn-teal' : 'btn-ghost'}`}
-              disabled={busy || s.urgency === u}
+              disabled={busy || s.urgency === u || !canAssign}
               onClick={() => patch({ urgency: u })}
             >{u}</button>
           ))}
@@ -139,18 +173,21 @@ function Drawer({ id, departments, categories, onClose, onChanged }) {
             </li>
           ))}
         </ul>
-        <div style={{ display: 'flex', gap: 8 }}>
-          <input className="input" placeholder="Add an internal note…" value={note}
-            onChange={e => setNote(e.target.value)}
-            onKeyDown={e => e.key === 'Enter' && sendNote()} />
-          <button className="btn btn-teal btn-small" style={{ flexShrink: 0 }} disabled={busy || !note.trim()} onClick={sendNote}>Add</button>
-        </div>
+        {canRespond && (
+          <div style={{ display: 'flex', gap: 8 }}>
+            <input className="input" placeholder="Add an internal note…" value={note}
+              onChange={e => setNote(e.target.value)}
+              onKeyDown={e => e.key === 'Enter' && sendNote()} />
+            <button className="btn btn-teal btn-small" style={{ flexShrink: 0 }} disabled={busy || !note.trim()} onClick={sendNote}>Add</button>
+          </div>
+        )}
       </aside>
     </>
   );
 }
 
 export default function Submissions() {
+  const actor = useActor();
   const [searchParams, setSearchParams] = useSearchParams();
   const [rows, setRows] = useState(null);
   const [total, setTotal] = useState(0);
@@ -159,6 +196,7 @@ export default function Submissions() {
   const [departments, setDepartments] = useState([]);
   const [categories, setCategories] = useState([]);
   const [locations, setLocations] = useState([]);
+  const [assignees, setAssignees] = useState([]);
   const [settings, setSettings] = useState(null);
 
   const filters = {
@@ -181,6 +219,7 @@ export default function Submissions() {
     api.catalog('departments').then(d => setDepartments(d.rows));
     api.catalog('categories').then(d => setCategories(d.rows));
     api.catalog('locations').then(d => setLocations(d.rows));
+    api.assignees().then(d => setAssignees(d.rows)).catch(() => {});
     api.settings().then(d => setSettings(d.settings));
   }, []);
 
@@ -214,7 +253,7 @@ export default function Submissions() {
           <h1 className="display">Submissions</h1>
           <div className="sub">{total} matching · safety concerns float to the top</div>
         </div>
-        {settings?.features?.csvExport && (
+        {settings?.features?.csvExport && actor.can('export.csv') && (
           <div className="actions">
             <button className="btn btn-ghost btn-small" onClick={exportCsv}>⬇ Export CSV</button>
           </div>
@@ -281,7 +320,7 @@ export default function Submissions() {
       )}
 
       {openId && (
-        <Drawer id={openId} departments={departments} categories={categories}
+        <Drawer id={openId} departments={departments} categories={categories} assignees={assignees}
           onClose={() => setOpenId(null)} onChanged={load} />
       )}
     </>

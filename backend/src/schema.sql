@@ -53,12 +53,28 @@ CREATE TABLE IF NOT EXISTS app_settings (
 );
 
 CREATE TABLE IF NOT EXISTS departments (
-  id         SERIAL PRIMARY KEY,
-  name       TEXT NOT NULL UNIQUE,
-  email      TEXT NOT NULL DEFAULT '',
-  active     BOOLEAN NOT NULL DEFAULT true,
-  sort       INTEGER NOT NULL DEFAULT 0
+  id                    SERIAL PRIMARY KEY,
+  name                  TEXT NOT NULL UNIQUE,
+  email                 TEXT NOT NULL DEFAULT '',
+  active                BOOLEAN NOT NULL DEFAULT true,
+  sort                  INTEGER NOT NULL DEFAULT 0,
+  -- Weekly hours: {"mon":["08:00","20:00"],…,"sun":null}. NULL column = always open (24/7).
+  hours                 JSONB,
+  -- What happens to submissions that arrive while closed.
+  after_hours           TEXT NOT NULL DEFAULT 'urgency_based',  -- hold | reroute | urgency_based
+  fallback_department_id INTEGER REFERENCES departments(id) ON DELETE SET NULL,
+  on_call_user_id       INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  -- Per-department SLA overrides; NULL = inherit urgency/global targets.
+  sla_response_hours    INTEGER,
+  sla_resolution_hours  INTEGER
 );
+-- Upgrades: pre-v2 departments lack the routing columns.
+ALTER TABLE departments ADD COLUMN IF NOT EXISTS hours JSONB;
+ALTER TABLE departments ADD COLUMN IF NOT EXISTS after_hours TEXT NOT NULL DEFAULT 'urgency_based';
+ALTER TABLE departments ADD COLUMN IF NOT EXISTS fallback_department_id INTEGER REFERENCES departments(id) ON DELETE SET NULL;
+ALTER TABLE departments ADD COLUMN IF NOT EXISTS on_call_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL;
+ALTER TABLE departments ADD COLUMN IF NOT EXISTS sla_response_hours INTEGER;
+ALTER TABLE departments ADD COLUMN IF NOT EXISTS sla_resolution_hours INTEGER;
 
 CREATE TABLE IF NOT EXISTS user_departments (
   user_id       INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -108,14 +124,41 @@ CREATE TABLE IF NOT EXISTS submissions (
   rating_comment  TEXT NOT NULL DEFAULT '',
   created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
   first_response_at TIMESTAMPTZ,
-  resolved_at     TIMESTAMPTZ
+  resolved_at     TIMESTAMPTZ,
+  -- v2: assignment, triage provenance, hours-aware SLA clock, scheduler flags.
+  assigned_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  triage_via      TEXT NOT NULL DEFAULT '',                -- ai | keywords | '' (pre-upgrade)
+  sla_start_at    TIMESTAMPTZ,                             -- when the SLA clock starts (deferred while held)
+  first_response_due_at TIMESTAMPTZ,
+  resolution_due_at     TIMESTAMPTZ,
+  held_until      TIMESTAMPTZ,                             -- non-null = waiting for the department to open
+  rerouted_from_department_id INTEGER REFERENCES departments(id) ON DELETE SET NULL,
+  response_warned_at    TIMESTAMPTZ,                       -- scheduler idempotency flags
+  response_breached_at  TIMESTAMPTZ,
+  resolution_warned_at  TIMESTAMPTZ,
+  resolution_breached_at TIMESTAMPTZ
 );
+-- Upgrades: pre-v2 submissions lack the v2 columns.
+ALTER TABLE submissions ADD COLUMN IF NOT EXISTS assigned_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL;
+ALTER TABLE submissions ADD COLUMN IF NOT EXISTS triage_via TEXT NOT NULL DEFAULT '';
+ALTER TABLE submissions ADD COLUMN IF NOT EXISTS sla_start_at TIMESTAMPTZ;
+ALTER TABLE submissions ADD COLUMN IF NOT EXISTS first_response_due_at TIMESTAMPTZ;
+ALTER TABLE submissions ADD COLUMN IF NOT EXISTS resolution_due_at TIMESTAMPTZ;
+ALTER TABLE submissions ADD COLUMN IF NOT EXISTS held_until TIMESTAMPTZ;
+ALTER TABLE submissions ADD COLUMN IF NOT EXISTS rerouted_from_department_id INTEGER REFERENCES departments(id) ON DELETE SET NULL;
+ALTER TABLE submissions ADD COLUMN IF NOT EXISTS response_warned_at TIMESTAMPTZ;
+ALTER TABLE submissions ADD COLUMN IF NOT EXISTS response_breached_at TIMESTAMPTZ;
+ALTER TABLE submissions ADD COLUMN IF NOT EXISTS resolution_warned_at TIMESTAMPTZ;
+ALTER TABLE submissions ADD COLUMN IF NOT EXISTS resolution_breached_at TIMESTAMPTZ;
 
 CREATE INDEX IF NOT EXISTS idx_submissions_created ON submissions (created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_submissions_status  ON submissions (status);
 CREATE INDEX IF NOT EXISTS idx_submissions_cat     ON submissions (category_id);
 CREATE INDEX IF NOT EXISTS idx_submissions_loc     ON submissions (location_id);
 CREATE INDEX IF NOT EXISTS idx_submissions_dept    ON submissions (department_id);
+CREATE INDEX IF NOT EXISTS idx_submissions_resp_due ON submissions (first_response_due_at) WHERE first_response_at IS NULL;
+CREATE INDEX IF NOT EXISTS idx_submissions_reso_due ON submissions (resolution_due_at) WHERE resolved_at IS NULL;
+CREATE INDEX IF NOT EXISTS idx_submissions_held     ON submissions (held_until) WHERE held_until IS NOT NULL;
 
 -- ===== v2 upgrade: submission_events.admin_id → user_id (before CREATE) =====
 DO $$ BEGIN
