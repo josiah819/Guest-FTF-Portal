@@ -1,22 +1,13 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { api } from '../api';
+import { applyTheme } from '../theme';
 
-const TYPES = [
-  { id: 'issue', label: '⚠️ Something’s wrong' },
-  { id: 'request', label: '🙋 I need something' },
-  { id: 'feedback', label: '💡 Idea / feedback' },
-  { id: 'compliment', label: '💚 Shout-out' },
-];
+const TYPE_IDS = ['issue', 'request', 'feedback', 'compliment'];
+const URGENCY_IDS = ['low', 'normal', 'high', 'safety'];
 
-const URGENCIES = [
-  { id: 'low', label: 'Whenever' },
-  { id: 'normal', label: 'Normal' },
-  { id: 'high', label: 'Today please' },
-  { id: 'safety', label: '🚨 Safety' },
-];
-
-const blankForm = { type: 'issue', category: '', message: '', urgency: 'normal', name: '', email: '', phone: '', group: '' };
+// type stays '' until the guest actively picks one — the AI infers it otherwise.
+const blankForm = { type: '', category: '', message: '', urgency: 'normal', name: '', email: '', phone: '', group: '' };
 
 // Returning guests shouldn't retype who they are. Saved only on their own
 // device, never in kiosk mode (shared screens).
@@ -58,6 +49,7 @@ export default function GuestForm() {
     api.publicConfig()
       .then(cfg => {
         setConfig(cfg);
+        applyTheme(cfg.content?.branding);
         if (locParam && cfg.locations.some(l => l.slug === locParam)) {
           setLocationSlug(locParam);
           setLocLocked(true);
@@ -143,7 +135,7 @@ export default function GuestForm() {
     setSubmitting(true);
     try {
       const fd = new FormData();
-      fd.append('type', config.features.submissionTypes ? form.type : 'issue');
+      fd.append('type', form.type); // '' = guest didn't pick — the AI infers it
       fd.append('category', form.category);
       fd.append('message', form.message);
       fd.append('location', locationSlug);
@@ -177,6 +169,11 @@ export default function GuestForm() {
 
   const g = config.general;
   const f = config.fields;
+  const ct = config.content?.form || {};
+  const labels = config.content?.labels || {};
+  const branding = config.content?.branding || {};
+  const typeChips = TYPE_IDS.map(id => ({ id, label: labels.types?.[id] || id }));
+  const urgencyChips = URGENCY_IDS.map(id => ({ id, label: labels.urgencies?.[id] || id }));
   const showField = (k) => f[k] && f[k] !== 'off';
   const reqMark = (k) => f[k] === 'required'
     ? <span className="opt">required</span>
@@ -207,7 +204,7 @@ export default function GuestForm() {
   return (
     <div className={shellClass}>
       <header className="guest-top rise">
-        <img src="/brand/mw-logo-white.png" alt="Muskoka Woods" />
+        <img src={branding.logoLight || '/brand/mw-logo-white.png'} alt={g.orgName} />
         <span className="pill">{g.appName}</span>
       </header>
 
@@ -230,14 +227,15 @@ export default function GuestForm() {
                   >⧉</button>
                 </div>
                 <p className="muted" style={{ marginTop: 12 }}>
-                  Keep this code to <Link to={`/t/${success.code}`}>check on your submission</Link>.
+                  {ct.keepCodePrefix || 'Keep this code to'}{' '}
+                  <Link to={`/t/${success.code}`}>{ct.keepCodeLink || 'check on your submission'}</Link>.
                 </p>
               </>
             )}
             <div style={{ marginTop: 22 }}>
-              <button className="btn btn-ghost btn-small" onClick={resetAll}>Send another</button>
+              <button className="btn btn-ghost btn-small" onClick={resetAll}>{ct.sendAnotherLabel || 'Send another'}</button>
             </div>
-            {kiosk && <p className="muted" style={{ marginTop: 14 }}>This screen resets automatically.</p>}
+            {kiosk && <p className="muted" style={{ marginTop: 14 }}>{ct.kioskResetNote || 'This screen resets automatically.'}</p>}
           </div>
         </main>
       ) : (
@@ -252,14 +250,14 @@ export default function GuestForm() {
             <form onSubmit={submit} noValidate>
               {config.features.submissionTypes && (
                 <>
-                  <div className="field-label" style={{ marginTop: 4 }}>What kind of note is this?</div>
+                  <div className="field-label" style={{ marginTop: 4 }}>{ct.typeLabel || 'What kind of note is this?'}</div>
                   <div className="type-row" role="radiogroup">
-                    {TYPES.map(t => (
+                    {typeChips.map(t => (
                       <button
                         type="button"
                         key={t.id}
                         className={`chip${form.type === t.id ? ' on' : ''}`}
-                        onClick={() => set('type')(t.id)}
+                        onClick={() => set('type')(form.type === t.id ? '' : t.id)}
                         aria-pressed={form.type === t.id}
                       >{t.label}</button>
                     ))}
@@ -267,10 +265,10 @@ export default function GuestForm() {
                 </>
               )}
 
-              <div className="field-label">What’s going on? <span className="opt">required</span></div>
+              <div className="field-label">{ct.messageLabel || 'What’s going on?'} <span className="opt">required</span></div>
               <textarea
                 className="input"
-                placeholder="Tell us what happened, what you need, or what made your day…"
+                placeholder={ct.messagePlaceholder || 'Tell us what happened, what you need, or what made your day…'}
                 value={form.message}
                 onChange={e => set('message')(e.target.value)}
                 maxLength={4000}
@@ -282,7 +280,7 @@ export default function GuestForm() {
                   <div className="photo-drop" style={{ marginTop: 10 }} onClick={() => fileRef.current?.click()}>
                     {photoPreview
                       ? <><img src={photoPreview} alt="preview" /> <span>{photo?.name}</span></>
-                      : <><span style={{ fontSize: 22 }}>📷</span> <span>Snap or choose a photo (optional, 8 MB max)</span></>}
+                      : <><span style={{ fontSize: 22 }}>📷</span> <span>{ct.photoPrompt || 'Snap or choose a photo (optional, 8 MB max)'}</span></>}
                   </div>
                   <input ref={fileRef} type="file" accept="image/*" capture="environment" hidden onChange={pickPhoto} />
                 </>
@@ -290,16 +288,16 @@ export default function GuestForm() {
 
               {showField('location') && (
                 <>
-                  <div className="field-label">Where? {reqMark('location')}</div>
+                  <div className="field-label">{ct.locationLabel || 'Where?'} {reqMark('location')}</div>
                   {locLocked && lockedLocation ? (
                     <div className="loc-bar">
                       <span>📍</span>
                       <span className="where">{lockedLocation.name}</span>
-                      <button type="button" onClick={() => setLocLocked(false)}>Change</button>
+                      <button type="button" onClick={() => setLocLocked(false)}>{ct.changeLocationLabel || 'Change'}</button>
                     </div>
                   ) : (
                     <select className="input" value={locationSlug} onChange={e => setLocationSlug(e.target.value)}>
-                      <option value="">Choose a location…</option>
+                      <option value="">{ct.locationPlaceholder || 'Choose a location…'}</option>
                       {locationsByArea.map(([area, locs]) => (
                         <optgroup key={area} label={area}>
                           {locs.map(l => <option key={l.slug} value={l.slug}>{l.name}</option>)}
@@ -312,9 +310,9 @@ export default function GuestForm() {
 
               {config.features.urgency && showField('urgency') && (
                 <>
-                  <div className="field-label">How urgent? {reqMark('urgency')}</div>
+                  <div className="field-label">{ct.urgencyLabel || 'How urgent?'} {reqMark('urgency')}</div>
                   <div className="urgency-row" role="radiogroup">
-                    {URGENCIES.map(u => (
+                    {urgencyChips.map(u => (
                       <button
                         type="button"
                         key={u.id}
@@ -327,24 +325,28 @@ export default function GuestForm() {
                 </>
               )}
 
-              <div className="field-label">
-                Category
-                <span className="opt">{config.features.aiCategorization ? 'skip it — we’ll sort it for you' : 'optional'}</span>
-              </div>
-              <div className="cat-grid">
-                {config.categories.map(c => (
-                  <button
-                    type="button"
-                    key={c.slug}
-                    className={`cat-tile${form.category === c.slug ? ' on' : ''}`}
-                    onClick={() => set('category')(form.category === c.slug ? '' : c.slug)}
-                    aria-pressed={form.category === c.slug}
-                  >
-                    <span className="em">{c.emoji}</span>
-                    <span className="nm">{c.name}</span>
-                  </button>
-                ))}
-              </div>
+              {showField('category') && (
+                <>
+                  <div className="field-label">
+                    {ct.categoryLabel || 'Category'}
+                    <span className="opt">{config.features.aiCategorization ? (ct.categoryHintAi || 'skip it — we’ll sort it for you') : (ct.categoryHint || 'optional')}</span>
+                  </div>
+                  <div className="cat-grid">
+                    {config.categories.map(c => (
+                      <button
+                        type="button"
+                        key={c.slug}
+                        className={`cat-tile${form.category === c.slug ? ' on' : ''}`}
+                        onClick={() => set('category')(form.category === c.slug ? '' : c.slug)}
+                        aria-pressed={form.category === c.slug}
+                      >
+                        <span className="em">{c.emoji}</span>
+                        <span className="nm">{c.name}</span>
+                      </button>
+                    ))}
+                  </div>
+                </>
+              )}
 
               {requiredContact.length > 0 && (
                 <div className="contact-grid">
@@ -368,7 +370,7 @@ export default function GuestForm() {
                   <button type="button" className="contact-teaser" onClick={() => setContactOpen(true)}>
                     {contactSummary
                       ? <><span className="ic">👤</span><span className="tx">Sending as <strong>{contactSummary}</strong>{form.group && form.name ? ` · ${form.group}` : ''}</span><span className="edit">Edit</span></>
-                      : <><span className="ic">👤</span><span className="tx">Add your name so we can follow up</span><span className="edit">Optional</span></>}
+                      : <><span className="ic">👤</span><span className="tx">{ct.contactPrompt || 'Add your name so we can follow up'}</span><span className="edit">{ct.contactPromptTag || 'Optional'}</span></>}
                   </button>
                 )
               )}
@@ -377,7 +379,7 @@ export default function GuestForm() {
 
               <div style={{ marginTop: 22 }}>
                 <button className="btn btn-primary" type="submit" disabled={submitting}>
-                  {submitting ? 'Sending…' : 'Send it to the team →'}
+                  {submitting ? (ct.submittingLabel || 'Sending…') : (ct.submitLabel || 'Send it to the team →')}
                 </button>
               </div>
 
@@ -395,8 +397,8 @@ export default function GuestForm() {
       <footer className="guest-foot rise rise-3">
         <span>© {new Date().getFullYear()} {g.orgName}</span>
         <span className="guest-foot__links">
-          <Link to="/how">How this works</Link>
-          {config.features.tracking && !success && <Link to="/track">Check a submission →</Link>}
+          <Link to="/how">{ct.howLinkLabel || 'How this works'}</Link>
+          {config.features.tracking && !success && <Link to="/track">{ct.trackLinkLabel || 'Check a submission →'}</Link>}
         </span>
       </footer>
     </div>

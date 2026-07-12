@@ -29,6 +29,7 @@ router.get('/config', aw(async (req, res) => {
   res.json({
     general: settings.general,
     fields: settings.fields,
+    content: settings.content,
     features: {
       submissionTypes: settings.features.submissionTypes,
       photoUpload: settings.features.photoUpload && settings.fields.photo !== 'off',

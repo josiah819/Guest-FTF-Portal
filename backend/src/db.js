@@ -14,32 +14,38 @@ const pool = new Pool({
 // Single source of truth for every admin-tunable knob. Stored as one JSONB row;
 // new keys added here are deep-merged into existing installs on boot.
 const DEFAULT_SETTINGS = {
+  // Existing installs get the one-time guest-form simplification in
+  // migrateAndSeed; fresh installs are born simplified, so the flag ships true.
+  migratedSimpleForm: true,
   general: {
     appName: 'WoodsVoice',
     orgName: 'Muskoka Woods',
+    timezone: 'America/Toronto',
     welcomeTitle: 'How can we make your stay better?',
-    welcomeSubtitle: 'Spotted an issue? Need something? Loved something? It takes about 30 seconds.',
+    welcomeSubtitle: 'Spotted an issue? Need something? Loved something? Just tell us — it takes about 30 seconds.',
     successTitle: 'Got it — thank you!',
     successMessage: 'Your note is on its way to the right team at the Woods.',
     expectationBanner: 'Our teams review new submissions throughout the day. This is not an instant-response service — for anything urgent or safety-related, please also tell any Muskoka Woods staff member in person.',
     showExpectationBanner: true,
   },
-  // Each guest-form field: 'required' | 'optional' | 'off'  (message is always required)
+  // Each guest-form field: 'required' | 'optional' | 'off'  (message is always required).
+  // Default form = one text box + optional name + optional photo; AI infers the rest.
   fields: {
-    location: 'required',
+    location: 'optional',   // auto-locked from the QR code; picker only appears without one
     name: 'optional',
-    email: 'optional',
+    email: 'off',
     phone: 'off',
-    group: 'optional',
-    urgency: 'optional',
+    group: 'off',
+    urgency: 'off',
     photo: 'optional',
+    category: 'off',
   },
   features: {
-    aiCategorization: true,   // Claude categorizes + sets urgency; keyword fallback without API key
+    aiCategorization: true,   // AI categorizes, types, grades urgency; keyword fallback without a provider
     aiInsights: true,         // "Generate insights" card on the dashboard
-    submissionTypes: true,    // issue / request / feedback / compliment selector
+    submissionTypes: false,   // issue / request / feedback / compliment selector (AI infers type when off)
     photoUpload: true,
-    urgency: true,            // urgency selector + safety flagging
+    urgency: true,            // urgency handling + safety flagging (selector visibility is fields.urgency)
     tracking: true,           // public status page via tracking code
     csat: true,               // guest star-rating once resolved
     kioskMode: true,          // ?kiosk=1 large-format, auto-resetting form
@@ -48,7 +54,7 @@ const DEFAULT_SETTINGS = {
     csvExport: true,
     qrGenerator: true,
     ftfForward: false,        // POST each submission to the FTF webhook below
-    emailForward: false,      // hand-off stub: logs intended notification per department
+    emailForward: false,      // notify integrations.notifyEmail per submission (needs SMTP env)
   },
   sla: { firstResponseHours: 24, resolutionHours: 72 },
   integrations: { ftfWebhookUrl: '', notifyEmail: '' },
@@ -59,6 +65,133 @@ const DEFAULT_SETTINGS = {
     maintainer: 'Josiah (IT)',
     slaMonitor: 'Guest Care lead',
     reviewCadence: 'Inbox checked morning & afternoon · dashboard reviewed Fridays',
+  },
+  // Every guest-facing string, editable in Settings → Content. deepMerge
+  // replaces arrays wholesale, so list editors always PUT complete arrays.
+  content: {
+    form: {
+      messageLabel: 'What’s going on?',
+      messagePlaceholder: 'Tell us what happened, what you need, or what made your day…',
+      typeLabel: 'What kind of note is this?',
+      urgencyLabel: 'How urgent?',
+      categoryLabel: 'Category',
+      categoryHintAi: 'skip it — we’ll sort it for you',
+      categoryHint: 'optional',
+      locationLabel: 'Where?',
+      locationPlaceholder: 'Choose a location…',
+      changeLocationLabel: 'Change',
+      photoPrompt: 'Snap or choose a photo (optional, 8 MB max)',
+      contactPrompt: 'Add your name so we can follow up',
+      contactPromptTag: 'Optional',
+      submitLabel: 'Send it to the team →',
+      submittingLabel: 'Sending…',
+      sendAnotherLabel: 'Send another',
+      keepCodePrefix: 'Keep this code to',
+      keepCodeLink: 'check on your submission',
+      kioskResetNote: 'This screen resets automatically.',
+      howLinkLabel: 'How this works',
+      trackLinkLabel: 'Check a submission →',
+    },
+    track: {
+      pill: 'Submission tracker',
+      kicker: 'Hang tight — we’re on it',
+      title: 'Check your submission',
+      codePlaceholder: 'MW-XXXXXX',
+      lookupLabel: 'Look up',
+      beingSorted: 'Being sorted',
+      ratingPrompt: 'How did we do?',
+      ratingThanks: 'thanks for the feedback!',
+      ratingCommentPlaceholder: 'Anything to add? (optional)',
+      sendRatingLabel: 'Send rating',
+      newSubmissionLabel: '← New submission',
+    },
+    labels: {
+      types: {
+        issue: '⚠️ Something’s wrong',
+        request: '🙋 I need something',
+        feedback: '💡 Idea / feedback',
+        compliment: '💚 Shout-out',
+      },
+      urgencies: { low: 'Whenever', normal: 'Normal', high: 'Today please', safety: '🚨 Safety' },
+      statuses: { new: 'Received', in_progress: 'In progress', resolved: 'Resolved', closed: 'Closed' },
+    },
+    how: {
+      pill: 'How it works',
+      kicker: 'WoodsVoice · Guest Care',
+      heroTitle: 'From “the shower’s cold” to fixed.',
+      heroSubtitle: 'One QR code in every cabin. One 30-second form. AI triage, department routing, response-time tracking — here’s the whole journey, end to end.',
+      journey: [
+        { emoji: '📱', title: 'Scan the QR in the room',
+          body: 'Every cabin and common area gets its own QR card. Scanning opens the form with the location already filled in — the system knows it came from Cabin 3 before the guest types a word.' },
+        { emoji: '✍️', title: 'Tell us in one sentence',
+          body: 'One required field: the message. Everything else is optional — a name if you’d like a follow-up, a photo if it helps. About 30 seconds, no app to download, no account to create.' },
+        { emoji: '✨', title: 'AI triage, instantly',
+          body: 'The AI reads the note, works out what kind of note it is, picks the category, grades urgency (safety concerns jump the queue), and writes a one-line summary for staff. The guest never waits on this — it happens after they hit send.' },
+        { emoji: '🧭', title: 'Routed to the right team',
+          body: 'Each category maps to a department — Facilities, Housekeeping, Food Services, Program, Guest Services. If a department has clocked out, urgent items reroute to whoever is on; the rest wait politely for opening time.' },
+        { emoji: '✅', title: 'Worked, resolved, rated',
+          body: 'Staff update the status in Guest Care HQ; the guest can follow along with their tracking code. Once resolved, the guest is invited to rate the experience — that becomes our satisfaction score.' },
+      ],
+      staff: {
+        kicker: 'Staff side',
+        heading: 'How the team finds out',
+        items: [
+          { title: 'Safety first.', body: 'Anything flagged as a safety concern pins to the top of the inbox and triggers a red alert on the dashboard until it’s handled.' },
+          { title: 'Guest Care HQ inbox.', body: 'Every submission lands in one shared inbox with filters by status, category, location and urgency — checked on a written cadence (see the Runbook).' },
+          { title: 'FTF hand-off.', body: 'With one switch, every submission is also POSTed straight into FTF, so Facilities keeps working exactly where they already work.' },
+          { title: 'Department email.', body: 'Each department can have a notification address on file — new submissions, SLA warnings and “you have mail from overnight” digests land there.' },
+        ],
+      },
+      measures: {
+        kicker: 'Measurement for success',
+        heading: 'The numbers we watch',
+        items: [
+          { title: 'Submissions per week', desc: 'Are guests actually using it? (QR vs web vs kiosk tells us where.)' },
+          { title: 'First-response time', desc: 'Hours until a staff member first touches a submission — median and 90th percentile, per department.' },
+          { title: 'SLA compliance %', desc: 'Share of submissions answered and resolved inside target — the success number.' },
+          { title: 'Misroute rate', desc: 'How often staff re-categorize the AI’s pick — tells us the triage is trustworthy.' },
+          { title: 'Guest rating (CSAT)', desc: 'Stars after resolution. The “was it worth it?” score.' },
+        ],
+        note: 'The dashboard tracks all of these live, with SLA targets (first response & resolution) set per department and per urgency in Settings. Who monitors them, on what cadence, is written down on the Runbook page in Guest Care HQ — accountability by name, not by vibes.',
+      },
+      demo: {
+        show: true,
+        kicker: 'The 5-minute demo',
+        heading: 'See it live, right now',
+        steps: [
+          { title: 'Scan the QR on this page', desc: 'Submit a real note — try “The shower in our cabin only runs cold.” Takes ~30 seconds.' },
+          { title: 'Open Guest Care HQ', desc: 'The note is already in the inbox: typed, categorized, urgency-graded, with a one-line AI summary.' },
+          { title: 'Mark it “In progress”', desc: 'That first touch stops the first-response clock — this is the number the SLA watches.' },
+          { title: 'Resolve it', desc: 'The guest’s tracking page updates live, and invites them to rate how we did.' },
+          { title: 'Open the Dashboard', desc: 'Volume, categories, hotspots, response times and SLA compliance — the whole story on one screen.' },
+        ],
+        scanLabel: 'Scan to try it',
+        formCta: 'Open the guest form →',
+        adminCta: 'Open Guest Care HQ ↗',
+      },
+      pilot: {
+        kicker: 'Start with a test',
+        heading: 'The pilot plan',
+        phases: [
+          { phase: 'Week 0', title: 'Dry run — staff only', who: 'Guest Services + Facilities & Maintenance',
+            body: 'Two QR codes in staff areas (staff lounge, front desk). Staff submit real quirks they notice. We tune categories, wording and the expectation banner before a guest ever sees it.' },
+          { phase: 'Weeks 1–2', title: 'Small pilot — one guest group', who: 'Add Housekeeping',
+            body: 'QR cards in 3–5 cabins plus the dining hall for one school or retreat group. Guest Care checks the inbox morning and afternoon; safety items ping immediately.' },
+          { phase: 'Week 3+', title: 'Decide and widen', who: 'Add Food Services + Program',
+            body: 'Review the numbers below with Cindy. If they hold up, print QR cards for every cabin and common area and make WoodsVoice the default channel.' },
+        ],
+        note: 'Start where the volume already is: maintenance and housekeeping requests from cabins. Every guest-facing word, field and feature is editable in Settings, so the pilot can tighten wording week by week without a developer.',
+      },
+      ownership: {
+        kicker: 'Who owns it',
+        note: 'System ownership, maintenance duties, security features, what-could-break analysis and the written SOPs all live on one printable page: Guest Care HQ → Runbook. If someone new takes over tomorrow, that page is the handover.',
+      },
+    },
+    branding: {
+      logoLight: '',   // shown on dark headers (guest pages); '' = bundled /brand/mw-logo-white.png
+      logoDark: '',    // shown on light backgrounds (login); '' = bundled /brand/mw-logo-colour.png
+      colors: { teal: '#1E5A64', green: '#A3CD42', orange: '#C26628' },
+    },
   },
 };
 
@@ -208,10 +341,21 @@ async function migrateAndSeed() {
   try {
     await client.query('BEGIN');
 
-    const { rows: settingsRows } = await client.query('SELECT id FROM app_settings WHERE id = 1');
+    const { rows: settingsRows } = await client.query('SELECT data FROM app_settings WHERE id = 1');
     if (!settingsRows.length) {
       await client.query('INSERT INTO app_settings (id, data) VALUES (1, $1)',
         [JSON.stringify(DEFAULT_SETTINGS)]);
+    } else if (!settingsRows[0].data.migratedSimpleForm) {
+      // One-time v2 flip for existing installs: the guest form drops to
+      // message + name + photo and the AI infers type/urgency/category.
+      // Everything stays re-enableable in Settings → Form fields.
+      const data = settingsRows[0].data;
+      data.fields = { ...(data.fields || {}), location: 'optional', urgency: 'off', email: 'off', phone: 'off', group: 'off', category: 'off' };
+      data.features = { ...(data.features || {}), submissionTypes: false };
+      data.migratedSimpleForm = true;
+      await client.query('UPDATE app_settings SET data = $1, updated_at = now() WHERE id = 1',
+        [JSON.stringify(data)]);
+      console.log('[migrate] one-time guest-form simplification applied');
     }
 
     // Roles: seed the starter set once, then keep Administrator topped up with

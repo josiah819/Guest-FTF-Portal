@@ -1,6 +1,8 @@
 const express = require('express');
+const multer = require('multer');
+const path = require('path');
 const { pool, getSettings, saveSettings } = require('../db');
-const { aw, clampStr } = require('../util');
+const { aw, clampStr, newFileName } = require('../util');
 const { requireAuth, login, changePassword } = require('../auth');
 const { attachActor, requirePerm, deptFilter, inDeptScope } = require('../rbac');
 const { dashboardMetrics, insightsInput } = require('../metrics');
@@ -38,15 +40,39 @@ router.put('/settings', aw(async (req, res) => {
   const patch = {};
   for (const key of allowed) if (req.body[key] && typeof req.body[key] === 'object') patch[key] = req.body[key];
 
-  // content is its own permission; everything else is settings.manage.
+  // content is its own permission; general holds guest wording so either perm
+  // may edit it; everything else is settings.manage.
+  const perms = req.actor.perms;
   const sections = Object.keys(patch);
-  if (sections.includes('content') && !req.actor.perms.has('content.manage')) {
+  if (sections.includes('content') && !perms.has('content.manage')) {
     return res.status(403).json({ error: 'You don’t have permission to edit content.' });
   }
-  if (sections.some(k => k !== 'content') && !req.actor.perms.has('settings.manage')) {
+  if (sections.includes('general') && !(perms.has('settings.manage') || perms.has('content.manage'))) {
+    return res.status(403).json({ error: 'You don’t have permission to change settings.' });
+  }
+  if (sections.some(k => k !== 'content' && k !== 'general') && !perms.has('settings.manage')) {
     return res.status(403).json({ error: 'You don’t have permission to change settings.' });
   }
   res.json({ settings: await saveSettings(patch) });
+}));
+
+// ---------- branding ----------
+
+const UPLOAD_DIR = process.env.UPLOAD_DIR || '/data/uploads';
+const logoUpload = multer({
+  storage: multer.diskStorage({
+    destination: UPLOAD_DIR,
+    filename: (req, file, cb) => cb(null, newFileName(path.extname(file.originalname) || '.png')),
+  }),
+  limits: { fileSize: 2 * 1024 * 1024 },
+  fileFilter: (req, file, cb) => cb(null, /^image\//.test(file.mimetype)),
+});
+
+router.post('/branding/logo', requirePerm('content.manage'), logoUpload.single('logo'), aw(async (req, res) => {
+  if (!req.file) return res.status(400).json({ error: 'Pick an image file (2 MB max).' });
+  const slot = req.body.slot === 'dark' ? 'logoDark' : 'logoLight';
+  const settings = await saveSettings({ content: { branding: { [slot]: `/uploads/${req.file.filename}` } } });
+  res.json({ settings });
 }));
 
 // ---------- submissions ----------

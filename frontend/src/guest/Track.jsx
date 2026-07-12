@@ -1,17 +1,20 @@
 import React, { useEffect, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { api } from '../api';
+import { applyTheme } from '../theme';
 
+// Status label text comes from admin-editable content; the colours stay ours.
 const STATUS_STYLE = {
-  new: { label: 'Received', bg: 'var(--teal-mist)', fg: 'var(--teal-dark)' },
-  in_progress: { label: 'In progress', bg: '#F6E8D8', fg: '#8A4A16' },
-  resolved: { label: 'Resolved', bg: '#E4F0CD', fg: 'var(--green-dark)' },
-  closed: { label: 'Closed', bg: '#E8E5DC', fg: 'var(--ink-faint)' },
+  new: { bg: 'var(--teal-mist)', fg: 'var(--teal-dark)' },
+  in_progress: { bg: '#F6E8D8', fg: '#8A4A16' },
+  resolved: { bg: '#E4F0CD', fg: 'var(--green-dark)' },
+  closed: { bg: '#E8E5DC', fg: 'var(--ink-faint)' },
 };
 
 export default function Track() {
   const { code: codeParam } = useParams();
   const navigate = useNavigate();
+  const [config, setConfig] = useState(null);
   const [input, setInput] = useState(codeParam || '');
   const [data, setData] = useState(null);
   const [error, setError] = useState('');
@@ -20,6 +23,12 @@ export default function Track() {
   const [comment, setComment] = useState('');
   const [rated, setRated] = useState(false);
   const [rateError, setRateError] = useState('');
+
+  useEffect(() => {
+    api.publicConfig()
+      .then(cfg => { setConfig(cfg); applyTheme(cfg.content?.branding); })
+      .catch(() => setConfig({}));
+  }, []);
 
   useEffect(() => {
     if (!codeParam) { setData(null); return; }
@@ -47,19 +56,25 @@ export default function Track() {
     }
   }
 
+  const ct = config?.content?.track || {};
+  const statusLabels = config?.content?.labels?.statuses || {};
+  const branding = config?.content?.branding || {};
+  const orgName = config?.general?.orgName || 'Muskoka Woods';
+
   const st = data ? (STATUS_STYLE[data.status] || STATUS_STYLE.new) : null;
+  const stLabel = data ? (statusLabels[data.status] || data.status) : '';
   const canRate = data && data.csat && ['resolved', 'closed'].includes(data.status);
 
   return (
     <div className="guest-shell">
       <header className="guest-top rise">
-        <Link to="/"><img src="/brand/mw-logo-white.png" alt="Muskoka Woods" /></Link>
-        <span className="pill">Submission tracker</span>
+        <Link to="/"><img src={branding.logoLight || '/brand/mw-logo-white.png'} alt={orgName} /></Link>
+        <span className="pill">{ct.pill || 'Submission tracker'}</span>
       </header>
 
       <section className="guest-hero rise rise-1">
-        <div className="kicker">Hang tight — we’re on it</div>
-        <h1 className="display">Check your submission</h1>
+        <div className="kicker">{ct.kicker || 'Hang tight — we’re on it'}</div>
+        <h1 className="display">{ct.title || 'Check your submission'}</h1>
       </section>
 
       <main className="guest-card rise rise-2">
@@ -67,12 +82,12 @@ export default function Track() {
           <input
             className="input"
             style={{ textTransform: 'uppercase', letterSpacing: '0.08em', fontWeight: 700 }}
-            placeholder="MW-XXXXXX"
+            placeholder={ct.codePlaceholder || 'MW-XXXXXX'}
             value={input}
             onChange={e => setInput(e.target.value)}
             aria-label="Tracking code"
           />
-          <button className="btn btn-teal btn-small" type="submit" style={{ flexShrink: 0 }}>Look up</button>
+          <button className="btn btn-teal btn-small" type="submit" style={{ flexShrink: 0 }}>{ct.lookupLabel || 'Look up'}</button>
         </form>
 
         {loading && <div className="center-pad"><span className="spinner" /></div>}
@@ -81,9 +96,9 @@ export default function Track() {
         {data && !loading && (
           <div style={{ marginTop: 22 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-              <span className="track-status" style={{ background: st.bg, color: st.fg }}>{st.label}</span>
+              <span className="track-status" style={{ background: st.bg, color: st.fg }}>{stLabel}</span>
               <span className="muted">
-                {data.emoji} {data.category || 'Being sorted'} {data.location ? `· ${data.location}` : ''}
+                {data.emoji} {data.category || ct.beingSorted || 'Being sorted'} {data.location ? `· ${data.location}` : ''}
               </span>
             </div>
 
@@ -100,11 +115,11 @@ export default function Track() {
               <div style={{ borderTop: '1.5px solid var(--line)', marginTop: 8, paddingTop: 18 }}>
                 {rated ? (
                   <p style={{ margin: 0, fontWeight: 600, color: 'var(--green-dark)' }}>
-                    {'★'.repeat(data.rating || stars)} — thanks for the feedback!
+                    {'★'.repeat(data.rating || stars)} — {ct.ratingThanks || 'thanks for the feedback!'}
                   </p>
                 ) : (
                   <>
-                    <div className="field-label mt0" style={{ marginTop: 0 }}>How did we do?</div>
+                    <div className="field-label mt0" style={{ marginTop: 0 }}>{ct.ratingPrompt || 'How did we do?'}</div>
                     <div className="stars" role="radiogroup" aria-label="Rate 1 to 5 stars">
                       {[1, 2, 3, 4, 5].map(n => (
                         <button key={n} type="button" className={stars >= n ? 'on' : ''} onClick={() => setStars(n)} aria-label={`${n} stars`}>★</button>
@@ -115,12 +130,12 @@ export default function Track() {
                         <textarea
                           className="input"
                           style={{ marginTop: 12, minHeight: 70 }}
-                          placeholder="Anything to add? (optional)"
+                          placeholder={ct.ratingCommentPlaceholder || 'Anything to add? (optional)'}
                           value={comment}
                           onChange={e => setComment(e.target.value)}
                         />
                         {rateError && <div className="error-note">{rateError}</div>}
-                        <button className="btn btn-teal btn-small" style={{ marginTop: 10 }} onClick={sendRating}>Send rating</button>
+                        <button className="btn btn-teal btn-small" style={{ marginTop: 10 }} onClick={sendRating}>{ct.sendRatingLabel || 'Send rating'}</button>
                       </>
                     )}
                   </>
@@ -132,8 +147,8 @@ export default function Track() {
       </main>
 
       <footer className="guest-foot rise rise-3">
-        <span>© {new Date().getFullYear()} Muskoka Woods</span>
-        <Link to="/">← New submission</Link>
+        <span>© {new Date().getFullYear()} {orgName}</span>
+        <Link to="/">{ct.newSubmissionLabel || '← New submission'}</Link>
       </footer>
     </div>
   );

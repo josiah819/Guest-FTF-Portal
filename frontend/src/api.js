@@ -52,6 +52,12 @@ export const api = {
   deleteRole: (id) => request(`/api/admin/roles/${id}`, { method: 'DELETE', auth: true }),
   settings: () => request('/api/admin/settings', { auth: true }),
   saveSettings: (patch) => request('/api/admin/settings', { method: 'PUT', body: patch, auth: true }),
+  uploadLogo: (slot, file) => {
+    const fd = new FormData();
+    fd.append('slot', slot);
+    fd.append('logo', file);
+    return request('/api/admin/branding/logo', { method: 'POST', formData: fd, auth: true });
+  },
   metrics: (days) => request(`/api/admin/metrics?days=${days}`, { auth: true }),
   insights: () => request('/api/admin/insights', { method: 'POST', auth: true }),
   submissions: (params) => request(`/api/admin/submissions?${new URLSearchParams(params)}`, { auth: true }),
