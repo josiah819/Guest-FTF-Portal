@@ -52,7 +52,8 @@ const ROLE_SEEDS = [
     'submissions.view_dept', 'submissions.respond',
   ] },
   { name: 'Viewer', isSystem: false, perms: [
-    'metrics.view_dept',
+    // Read-only leadership view: the whole picture, no buttons.
+    'metrics.view_all', 'submissions.view_all',
   ] },
 ];
 

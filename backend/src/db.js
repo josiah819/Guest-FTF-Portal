@@ -245,12 +245,22 @@ async function saveSettings(data) {
   return merged;
 }
 
+// Weekly hours ({"mon":["08:00","20:00"],…}; null day = closed, null hours = 24/7).
+const week = (open, close, overrides = {}) => {
+  const out = {};
+  for (const d of ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun']) {
+    out[d] = overrides[d] !== undefined ? overrides[d] : [open, close];
+  }
+  return out;
+};
+
 const SEED_DEPARTMENTS = [
-  { name: 'Facilities & Maintenance', sort: 1 },
-  { name: 'Housekeeping', sort: 2 },
-  { name: 'Food Services', sort: 3 },
-  { name: 'Program', sort: 4 },
-  { name: 'Guest Services', sort: 5 },
+  { name: 'Facilities & Maintenance', sort: 1, hours: week('07:00', '20:00') },
+  { name: 'Housekeeping', sort: 2, hours: week('08:00', '16:00') },
+  { name: 'Food Services', sort: 3, hours: week('06:30', '19:00') },
+  { name: 'Program', sort: 4, hours: week('08:00', '21:00') },
+  // The safety net: longest hours, no fallback of its own (on-call covers the gap).
+  { name: 'Guest Services', sort: 5, hours: week('07:00', '23:00') },
 ];
 
 const SEED_CATEGORIES = [
@@ -326,15 +336,21 @@ async function seedDemoSubmissions(client) {
     }
     const rating = status === 'resolved' && i % 2 === 0 ? 3 + (i % 3) : null;
 
+    // SLA columns mirror what routing would have computed (urgency defaults).
+    const targets = tpl.urg === 'safety' ? [2, 12] : tpl.urg === 'high' ? [8, 24] : [24, 72];
+    const respDue = new Date(created.getTime() + targets[0] * 3600000);
+    const resoDue = new Date(created.getTime() + targets[1] * 3600000);
     const { rows } = await client.query(
       `INSERT INTO submissions
         (public_code, type, status, category_id, department_id, location_id, location_text,
          message, urgency, guest_name, group_name, source, ai_processed,
-         rating, created_at, first_response_at, resolved_at)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,true,$13,$14,$15,$16) RETURNING id`,
+         rating, created_at, first_response_at, resolved_at,
+         triage_via, sla_start_at, first_response_due_at, resolution_due_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,true,$13,$14,$15,$16,$17,$14,$18,$19) RETURNING id`,
       [newPublicCode(), tpl.type, status, cat.id, cat.department_id, loc.id, loc.name,
        tpl.msg, tpl.urg, guests[i % guests.length], groups[i % groups.length],
-       i % 5 === 0 ? 'kiosk' : 'qr', rating, created, firstResp, resolved]
+       i % 5 === 0 ? 'kiosk' : 'qr', rating, created, firstResp, resolved,
+       i % 6 === 0 ? 'keywords' : 'ai', respDue, resoDue]
     );
     const sid = rows[0].id;
     await client.query(
@@ -350,6 +366,76 @@ async function seedDemoSubmissions(client) {
         `INSERT INTO submission_events (submission_id, kind, detail, is_public, created_at)
          VALUES ($1,'status','Status changed to Resolved',true,$2)`, [sid, resolved]);
     }
+  }
+
+  // Backfill breach/warn flags where the demo timeline actually missed targets,
+  // so the scorecards' breach column and the scheduler's idempotency line up.
+  await client.query(
+    `UPDATE submissions SET response_warned_at = first_response_due_at, response_breached_at = first_response_due_at
+      WHERE first_response_due_at < now()
+        AND (first_response_at IS NULL OR first_response_at > first_response_due_at)`);
+  await client.query(
+    `UPDATE submissions SET resolution_warned_at = resolution_due_at, resolution_breached_at = resolution_due_at
+      WHERE resolution_due_at < now()
+        AND (resolved_at IS NULL OR resolved_at > resolution_due_at)`);
+
+  // A couple of items assigned to the Facilities lead.
+  await client.query(
+    `UPDATE submissions SET assigned_user_id = (SELECT id FROM users WHERE username = 'jake')
+      WHERE id IN (SELECT id FROM submissions
+                    WHERE department_id = (SELECT id FROM departments WHERE name = 'Facilities & Maintenance')
+                      AND status = 'in_progress' LIMIT 2)`);
+
+  // Showcase: an overnight note held for Housekeeping's opening…
+  const heldOpen = await client.query(
+    `SELECT (CASE WHEN now()::time < '08:00' THEN date_trunc('day', now()) + interval '8 hours'
+                  ELSE date_trunc('day', now()) + interval '32 hours' END) AS opens`);
+  const opens = heldOpen.rows[0].opens;
+  const { rows: heldRow } = await client.query(
+    `INSERT INTO submissions
+      (public_code, type, status, category_id, department_id, location_id, location_text, message,
+       urgency, source, ai_processed, triage_via, created_at,
+       sla_start_at, first_response_due_at, resolution_due_at, held_until)
+     SELECT $1, 'request', 'new', c.id, c.department_id, l.id, l.name,
+            'Could we get two more pillows for the bottom bunks whenever housekeeping is around tomorrow?',
+            'low', 'qr', true, 'ai', now() - interval '2 hours',
+            $2, $2::timestamptz + interval '24 hours', $2::timestamptz + interval '72 hours', $2
+       FROM categories c, locations l
+      WHERE c.slug = 'housekeeping' AND l.slug = 'cabin-4' RETURNING id`,
+    [newPublicCode(), opens]);
+  if (heldRow.length) {
+    await client.query(
+      `INSERT INTO submission_events (submission_id, kind, detail, is_public, created_at) VALUES
+        ($1,'created','Submission received',true, now() - interval '2 hours'),
+        ($1,'ai','Triage (demo): routed to Housekeeping, type request, urgency low', false, now() - interval '2 hours'),
+        ($1,'route','Housekeeping is closed — held until opening; the SLA clock starts then', false, now() - interval '2 hours')`,
+      [heldRow[0].id]);
+  }
+
+  // …and an overnight safety item rerouted to Guest Services.
+  const { rows: reroutedRow } = await client.query(
+    `INSERT INTO submissions
+      (public_code, type, status, category_id, department_id, location_id, location_text, message,
+       urgency, source, ai_processed, triage_via, created_at, rerouted_from_department_id,
+       sla_start_at, first_response_due_at, resolution_due_at, first_response_at)
+     SELECT $1, 'issue', 'in_progress', c.id,
+            (SELECT id FROM departments WHERE name = 'Guest Services'),
+            l.id, l.name,
+            'The railing on the cabin steps came loose tonight — someone could fall in the dark.',
+            'safety', 'qr', true, 'ai', now() - interval '90 minutes', c.department_id,
+            now() - interval '90 minutes', now() + interval '30 minutes', now() + interval '10.5 hours',
+            now() - interval '55 minutes'
+       FROM categories c, locations l
+      WHERE c.slug = 'maintenance' AND l.slug = 'cabin-7' RETURNING id`,
+    [newPublicCode()]);
+  if (reroutedRow.length) {
+    await client.query(
+      `INSERT INTO submission_events (submission_id, kind, detail, is_public, created_at) VALUES
+        ($1,'created','Submission received',true, now() - interval '90 minutes'),
+        ($1,'ai','Triage (demo): routed to Facilities & Maintenance, type issue, urgency safety', false, now() - interval '90 minutes'),
+        ($1,'route','Facilities & Maintenance is closed — rerouted to Guest Services', false, now() - interval '90 minutes'),
+        ($1,'status','Status changed to In progress',true, now() - interval '55 minutes')`,
+      [reroutedRow[0].id]);
   }
 }
 
@@ -404,8 +490,13 @@ async function migrateAndSeed() {
     const { rows: deptRows } = await client.query('SELECT count(*)::int AS n FROM departments');
     if (deptRows[0].n === 0) {
       for (const d of SEED_DEPARTMENTS) {
-        await client.query('INSERT INTO departments (name, sort) VALUES ($1,$2)', [d.name, d.sort]);
+        await client.query('INSERT INTO departments (name, sort, hours) VALUES ($1,$2,$3)',
+          [d.name, d.sort, d.hours ? JSON.stringify(d.hours) : null]);
       }
+      // After-hours reroutes all point at Guest Services (longest hours).
+      await client.query(
+        `UPDATE departments SET fallback_department_id = (SELECT id FROM departments WHERE name = 'Guest Services')
+          WHERE name <> 'Guest Services'`);
       for (const c of SEED_CATEGORIES) {
         await client.query(
           `INSERT INTO categories (slug, name, emoji, department_id, sort)
@@ -428,6 +519,34 @@ async function migrateAndSeed() {
          VALUES ($1,$2,$3,(SELECT id FROM roles WHERE is_system ORDER BY id LIMIT 1))`,
         [username, 'Guest Care Admin', hash]);
       console.log(`[seed] created admin account "${username}"`);
+    }
+
+    // Demo teammates: one per starter role, so the Team page and dept scoping
+    // have something to show. Same demo password as the admin account.
+    const { rows: userCount } = await client.query('SELECT count(*)::int AS n FROM users');
+    if (userCount[0].n === 1 && (process.env.SEED_DEMO_DATA || 'true') === 'true') {
+      const demoHash = bcrypt.hashSync(process.env.ADMIN_PASSWORD || 'WoodsVoice!demo', 10);
+      const DEMO_USERS = [
+        { username: 'jake', name: 'Jake R (Facilities lead)', role: 'Department Lead', depts: ['Facilities & Maintenance'] },
+        { username: 'maria', name: 'Maria S (Housekeeping)', role: 'Staff', depts: ['Housekeeping'] },
+        { username: 'cindy', name: 'Cindy B (Director)', role: 'Viewer', depts: [] },
+      ];
+      for (const u of DEMO_USERS) {
+        const { rows } = await client.query(
+          `INSERT INTO users (username, display_name, password_hash, role_id)
+           VALUES ($1,$2,$3,(SELECT id FROM roles WHERE name = $4)) RETURNING id`,
+          [u.username, u.name, demoHash, u.role]);
+        for (const dept of u.depts) {
+          await client.query(
+            `INSERT INTO user_departments (user_id, department_id)
+             SELECT $1, id FROM departments WHERE name = $2 ON CONFLICT DO NOTHING`,
+            [rows[0].id, dept]);
+        }
+      }
+      await client.query(
+        `UPDATE departments SET on_call_user_id = (SELECT min(id) FROM users)
+          WHERE name = 'Guest Services' AND on_call_user_id IS NULL`);
+      console.log('[seed] created demo teammates (jake / maria / cindy)');
     }
 
     const { rows: subRows } = await client.query('SELECT count(*)::int AS n FROM submissions');

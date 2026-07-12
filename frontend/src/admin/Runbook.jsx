@@ -39,7 +39,8 @@ const RISKS = [
 ];
 
 const SECURITY = [
-  ['Admin sign-in', 'Passwords are stored bcrypt-hashed, never in plain text. Sessions are signed tokens that expire after 12 hours.'],
+  ['Admin sign-in', 'Passwords are stored bcrypt-hashed, never in plain text. Sessions are signed tokens that expire after 12 hours; deactivating an account locks it out immediately, even mid-session.'],
+  ['Roles & permissions', 'Every staff account has a role from the Team page matrix — who can respond, close, re-route, edit content, see other departments’ items, or manage the team is an explicit checkbox, enforced on the server per request.'],
   ['Guest privacy by default', 'Guests need no account and, out of the box, no personal info — name, email and phone are optional fields you can switch off entirely.'],
   ['Spam & abuse limits', 'The public form is rate-limited (12 submissions per 5 minutes per address), and message/field lengths are capped server-side.'],
   ['Photo uploads', 'Images only, 8 MB cap, stored under random unguessable filenames — links can’t be enumerated.'],
@@ -102,17 +103,44 @@ const SOPS = [
     ],
   },
   {
-    id: 7, title: 'Reset a lost admin password', who: 'maintainer',
-    code: 'generate a new hash:\n  docker compose exec backend node -e "console.log(require(\'bcryptjs\').hashSync(\'NewPassword123\', 10))"\n\nwrite it to the account:\n  docker compose exec db psql -U woodsvoice woodsvoice -c \\\n    "UPDATE admins SET password_hash=\'<paste hash>\' WHERE username=\'admin\';"',
+    id: 7, title: 'Reset a lost password', who: 'maintainer',
     steps: [
-      'Sign in with the new password, then change it again in Settings → Account so it was only ever typed on the server once.',
+      'Any teammate: someone with “Manage team & roles” opens HQ → Team and clicks Reset password — a one-time temporary password appears; they set their own on first sign-in.',
+      'The last remaining admin (nobody can reach the Team page): use the server commands below, then change the password again in Settings → Account so it was only ever typed on the server once.',
     ],
+    code: 'generate a new hash:\n  docker compose exec backend node -e "console.log(require(\'bcryptjs\').hashSync(\'NewPassword123\', 10))"\n\nwrite it to the account:\n  docker compose exec db psql -U woodsvoice woodsvoice -c \\\n    "UPDATE users SET password_hash=\'<paste hash>\' WHERE username=\'admin\';"',
   },
   {
     id: 8, title: 'Season start / season end', who: 'systemOwner',
     steps: [
-      'Start: check the location list against this year’s cabin map; reprint any weathered QR cards; review categories and the expectation banner wording.',
+      'Start: check the location list against this year’s cabin map; reprint any weathered QR cards; review categories, department hours and the expectation banner wording.',
       'End: export the season CSV, resolve or close stragglers, and note the season’s SLA compliance in the year-end report.',
+    ],
+  },
+  {
+    id: 9, title: 'Add a teammate (or change what they can do)', who: 'systemOwner',
+    steps: [
+      'HQ → Team → fill in username, name, email (for notifications), pick a role, tick their departments → Create user.',
+      'Send them the one-time temporary password over a trusted channel — they’ll be asked to set their own at first sign-in.',
+      'Need a permission tweak? Tick or untick boxes in the role matrix — changes apply within seconds, no re-login.',
+      'Someone leaves: flip their Active switch off. They’re locked out immediately; their history stays on the timelines.',
+    ],
+  },
+  {
+    id: 10, title: 'Department hours, after-hours routing & on-call', who: 'systemOwner',
+    steps: [
+      'HQ → Settings → Departments → 🕐 Hours on the department row.',
+      'Set the weekly hours (or 24/7), what happens after hours (urgency-based is the default: safety/high reroute, the rest wait for opening), the fallback department, and the on-call person.',
+      'Held items release automatically at opening with a digest email; their SLA clock starts at opening, so nobody is penalized for being closed.',
+      'If every department on a chain is closed, the item stays put and the on-call person + global notify address are emailed.',
+    ],
+  },
+  {
+    id: 11, title: 'Switch the AI triage engine', who: 'maintainer',
+    steps: [
+      'HQ → Settings → AI. Pick Anthropic (needs ANTHROPIC_API_KEY in .env), a local OpenAI-compatible endpoint (e.g. Ollama on an LXC — base URL + model), or keywords-only.',
+      'Hit “Test connection” — it runs a real sample classification and shows latency + the parsed result.',
+      'Every AI failure already falls back to keywords automatically; switching engines never loses submissions.',
     ],
   },
 ];
@@ -223,7 +251,7 @@ export default function Runbook() {
       {/* SOPs */}
       <div className="card" style={{ marginBottom: 16 }}>
         <h3>Standard operating procedures</h3>
-        <p className="hint">Eight short SOPs cover the whole life of the system. Print them; tape SOP 1 and 2 near the Guest Care desk.</p>
+        <p className="hint">Eleven short SOPs cover the whole life of the system. Print them; tape SOP 1 and 2 near the Guest Care desk.</p>
         {SOPS.map(sop => {
           const isOpen = open.has(sop.id);
           return (

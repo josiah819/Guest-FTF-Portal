@@ -2,7 +2,17 @@
 
 **Scan. Tell us. We're on it.** — Guest feedback & request system for Muskoka Woods Schools & Retreats.
 
-Guests scan a QR code in their cabin or a common area and land on a 30-second form that already knows where they are. An AI layer (Claude) categorizes each submission, grades urgency, writes a one-line staff summary and routes it to the right department. The Guest Care team works from a dashboard with response-time metrics, trends, hotspot detection and AI insights.
+Guests scan a QR code in their cabin or a common area and just **type what they need** — one text box, optional name, optional photo. The AI layer works out what kind of note it is, categorizes it, grades urgency, writes a one-line staff summary and routes it to the right department — respecting each department's **opening hours** (urgent items reroute to whoever's on; the rest wait politely with their SLA clock paused). The Guest Care team works from a dashboard with per-department scorecards, SLA compliance, trends, hotspot detection and AI insights.
+
+## What's in v2
+
+- **Zero-friction guest form** — message + optional name + optional photo. The AI infers type, category, department and urgency. Every old picker still exists behind a settings toggle.
+- **Pluggable AI triage** — Anthropic API (Claude) **or** any OpenAI-compatible local endpoint (Ollama on an LXC, LM Studio, vLLM), switchable in **Settings → AI** with a test-connection button. Keyword matching remains the always-on fallback.
+- **Full RBAC** — custom roles with a per-permission checkbox matrix (14 permissions), per-user department membership, one-time temp passwords, immediate deactivation. Starter roles: Administrator, Department Lead, Staff, Viewer.
+- **Department hours & after-hours routing** — weekly hours per department, urgency-based rerouting to fallback departments, on-call escalation when every route is closed, held items released with a digest email at opening.
+- **Honest, robust SLA** — targets per department **and** per urgency; clocks start when the owning department opens; scheduler warns at 80% of the window and pages on breaches; median/p90 response times, compliance trends, and per-department scorecards.
+- **Everything editable** — every guest-facing word, label, page section, logo and brand colour lives in **Settings → Content**.
+- **Real email** — SMTP-backed notifications (new urgent items, SLA warnings/breaches, held-queue digests); without SMTP configured everything logs to the submission timeline instead.
 
 Built to match the vision in Cindy's email:
 
@@ -59,19 +69,22 @@ A realistic demo dataset loads on first boot so the dashboard isn't empty (`SEED
 
 ## The AI layer
 
-Set `ANTHROPIC_API_KEY` in `.env` and restart (`docker compose up -d`). That enables:
+Pick the engine in **Settings → AI** (test button included):
 
-- **Triage** — every new submission is categorized, urgency-graded (`low / normal / high / safety`) and summarized in one line for the inbox. Guests can skip the category entirely; Claude sorts it. Guest choices are never overridden.
-- **Dashboard insights** — one click turns the last 30 days into 3–5 concrete, actionable observations.
+- **Anthropic API** — set `ANTHROPIC_API_KEY` in `.env`; model editable (default `claude-haiku-4-5-20251001` — triage is an easy job, roughly a tenth of a cent per submission).
+- **Local / self-hosted** — point the base URL at any OpenAI-compatible endpoint (e.g. Ollama: `http://10.0.12.x:11434`, model like `qwen3:4b`). Nothing leaves the network; `OPENAI_API_KEY` only if your endpoint needs auth.
+- **Keywords only** — no AI; also the automatic fallback whenever an AI call fails or times out.
 
-Without a key, categorization falls back to keyword matching and everything else still works. Model defaults to `claude-opus-4-8` (`AI_MODEL` to change). Triage runs async after the guest's submit — the form is never slowed down by the API.
+Triage decides **type** (issue/request/feedback/compliment), **category → department**, **urgency** (`low / normal / high / safety`) and a one-line staff summary. Guest choices (if the pickers are re-enabled) are never overridden. Everything runs async after the guest's submit — the form is never slowed by a model. Dashboard insights use the same provider.
 
 ## Admin controls (Settings)
 
-- **Form fields** — every field (location, urgency, photo, name, email, phone, group) is `Off / Optional / Required`. Message is always required.
-- **Features** — 14 toggleable features: AI categorization, AI insights, submission types, photo upload, urgency, tracking codes, CSAT ratings, kiosk mode, hotspot detection, SLA targets, CSV export, QR generator, FTF webhook, email notifications.
-- **Categories & Departments** — fully editable; each category routes to a department.
-- **General** — every guest-facing string (titles, success copy, expectation banner).
+- **Form fields** — every field (location, category picker, urgency, photo, name, email, phone, group) is `Off / Optional / Required`. Message is always required; the v2 default form is just message + name + photo.
+- **Features** — AI triage, AI insights, submission types, photo upload, urgency handling, tracking codes, CSAT ratings, kiosk mode, hotspot detection, SLA targets (global + per-urgency + warn-%), CSV export, QR generator, FTF webhook, email notifications.
+- **AI** — provider picker + models + test connection.
+- **Content** — all guest-facing wording: form microcopy, tracking page, type/urgency/status labels, the whole `/how` page (journey, measures, demo script, pilot plan as editable lists), logos and brand colours.
+- **Categories & Departments** — fully editable; each category routes to a department. Departments carry **hours, after-hours policy, fallback chain, on-call person and SLA overrides** (🕐 Hours on each row).
+- **Team** (own page) — users, roles and the permission matrix.
 - **Locations & QR** — manage locations, print the QR sheet.
 
 ## Architecture
@@ -102,5 +115,6 @@ woodsvoice/
 
 - Set real values for `POSTGRES_PASSWORD`, `JWT_SECRET`, `ADMIN_PASSWORD` and put the app behind HTTPS (any reverse proxy).
 - Guest photo URLs are unguessable random filenames but served without auth — fine for an internal tool, add an auth proxy if photos may be sensitive.
-- `emailForward` logs intended notifications in the submission timeline; point it at your SMTP relay when you're ready.
+- Email needs `SMTP_HOST` (+ optional auth) in `.env`; until then every notification is logged on the submission timeline instead of sent.
+- Upgrading an existing install is automatic: schema migrations are guarded and run on boot (the old `admins` table becomes `users` with the Administrator role), and a one-time settings migration simplifies the guest form (re-enable anything under Settings → Form fields).
 - Runs side-by-side with woods360: separate compose projects on the same shared `web` proxy network — `woodsvoice.10.0.12.189.nip.io` vs `woods360.10.0.12.189.nip.io`, no host ports to collide.
