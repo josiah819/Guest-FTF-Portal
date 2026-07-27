@@ -226,6 +226,8 @@ export default function Dashboard() {
                 <p className="hint">
                   Every posted card: is it getting scanned, and do scans turn into notes?
                   {neverScanned > 0 && <> <strong>{neverScanned}</strong> location{neverScanned === 1 ? ' has' : 's have'} no visits this period — those cards may be missing, damaged, or just not noticed.</>}
+                  {v.byLocation.some(l => l.submissions > l.visits) &&
+                    <> One visit can produce several notes (and notes sent before visit tracking was switched on still count), so conversion can top 100%.</>}
                 </p>
                 <div style={{ overflowX: 'auto' }}>
                   <table className="score-table">

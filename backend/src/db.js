@@ -431,7 +431,8 @@ async function seedDemoSubmissions(client) {
       `INSERT INTO visits (location_id, loc_slug, source, visitor_key, created_at)
        VALUES ($1,$2,$3,$4,$5)`,
       [web ? null : loc.id, web ? '' : loc.slug, web ? 'web' : 'qr',
-       `demo-${i % 28}-${daysAgo}`, created]);
+       // ~31 pseudo-devices across the extras, so unique visitors < visits
+       `demo-${(i * 7) % 31}`, created]);
   }
 
   // …and an overnight safety item rerouted to Guest Services.
