@@ -7,6 +7,7 @@ import { useActor } from './AdminApp';
 const STATUS_LABELS = { new: 'New', in_progress: 'In progress', resolved: 'Resolved', closed: 'Closed' };
 const TYPE_LABELS = { issue: 'Issues', request: 'Requests', feedback: 'Feedback', compliment: 'Compliments' };
 const TRIAGE_LABELS = { ai: '✨ AI triage', keywords: 'Keyword match', unclassified: 'Unclassified' };
+const VISIT_SOURCE_LABELS = { qr: '📱 QR scan', kiosk: '🖥️ Kiosk', web: '🌐 Direct / typed link' };
 
 const fmtPct = (v) => v == null ? '—' : `${v}%`;
 const fmtNum = (v) => v == null ? '—' : v;
@@ -192,6 +193,74 @@ export default function Dashboard() {
           <Donut rows={m.byType} labelMap={TYPE_LABELS} />
         </div>
       </div>
+
+      {m.visits?.enabled && (() => {
+        const v = m.visits;
+        const sourceRows = ['qr', 'kiosk', 'web']
+          .map(s => ({ label: s, count: v[s] || 0 }))
+          .filter(r => r.count > 0);
+        const qrShare = v.total > 0 ? Math.round(((v.qr || 0) / v.total) * 100) : null;
+        const neverScanned = v.byLocation.filter(l => l.visits === 0).length;
+        return (
+          <>
+            <div className="grid-2" style={{ marginBottom: 16 }}>
+              <div className="card">
+                <h3>Guest visits</h3>
+                <p className="hint">
+                  Form opens, last {m.rangeDays} days — <strong>{v.total || 0}</strong> visits
+                  from ~<strong>{v.unique_visitors || 0}</strong> devices
+                  {qrShare != null ? <> · {qrShare}% arrived by QR scan</> : null}
+                </p>
+                <AreaChart series={v.series} />
+              </div>
+              <div className="card">
+                <h3>How guests arrive</h3>
+                <p className="hint">Scanned a cabin card, walked up to a kiosk, or typed the link</p>
+                <Donut rows={sourceRows} labelMap={VISIT_SOURCE_LABELS} />
+              </div>
+            </div>
+
+            {!dept && (
+              <div className="card" style={{ marginBottom: 16 }}>
+                <h3>QR scans by location</h3>
+                <p className="hint">
+                  Every posted card: is it getting scanned, and do scans turn into notes?
+                  {neverScanned > 0 && <> <strong>{neverScanned}</strong> location{neverScanned === 1 ? ' has' : 's have'} no visits this period — those cards may be missing, damaged, or just not noticed.</>}
+                </p>
+                <div style={{ overflowX: 'auto' }}>
+                  <table className="score-table">
+                    <thead>
+                      <tr>
+                        <th className="pl">Location</th>
+                        <th>Area</th>
+                        <th>Visits</th>
+                        <th>Via QR</th>
+                        <th>Notes sent</th>
+                        <th>Visit → note</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {v.byLocation.map(l => {
+                        const conv = l.visits > 0 ? Math.round((l.submissions / l.visits) * 100) : null;
+                        return (
+                          <tr key={l.id} style={l.visits === 0 ? { opacity: 0.55 } : undefined}>
+                            <td className="pl"><strong>{l.name}</strong>{l.active ? '' : <span className="muted"> · deactivated</span>}</td>
+                            <td>{l.area}</td>
+                            <td>{l.visits === 0 ? <span className="badge u-high">no scans yet</span> : l.visits}</td>
+                            <td>{l.visits === 0 ? '—' : l.qr_visits}</td>
+                            <td>{l.submissions}</td>
+                            <td>{conv == null ? '—' : `${conv}%`}</td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+          </>
+        );
+      })()}
 
       {m.sla.enabled && (
         <div className="grid-2" style={{ marginBottom: 16 }}>

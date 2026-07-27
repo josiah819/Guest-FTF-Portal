@@ -22,18 +22,22 @@ function clampStr(v, max = 2000) {
   return v.trim().slice(0, max);
 }
 
-// Very small fixed-window rate limiter for the public submit endpoint.
+// Very small fixed-window rate limiter for the public endpoints. Each
+// limiter instance gets its own bucket namespace so one endpoint's traffic
+// (e.g. visit beacons) can't eat into another's allowance.
 const buckets = new Map();
-function rateLimit({ windowMs, max }) {
+let limiterSeq = 0;
+function rateLimit({ windowMs, max, message }) {
+  const ns = ++limiterSeq;
   return (req, res, next) => {
-    const key = req.ip || 'unknown';
+    const key = `${ns}:${req.ip || 'unknown'}`;
     const now = Date.now();
     let b = buckets.get(key);
     if (!b || now - b.start > windowMs) { b = { start: now, count: 0 }; buckets.set(key, b); }
     b.count += 1;
     if (buckets.size > 5000) buckets.clear(); // crude memory guard
     if (b.count > max) {
-      return res.status(429).json({ error: 'Too many submissions — please wait a few minutes.' });
+      return res.status(429).json({ error: message || 'Too many submissions — please wait a few minutes.' });
     }
     next();
   };

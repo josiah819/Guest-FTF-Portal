@@ -1,6 +1,7 @@
 const express = require('express');
 const multer = require('multer');
 const path = require('path');
+const crypto = require('crypto');
 const { pool, getSettings } = require('../db');
 const { aw, clampStr, newPublicCode, newFileName, rateLimit } = require('../util');
 const { classifySubmission } = require('../classify');
@@ -43,6 +44,34 @@ router.get('/config', aw(async (req, res) => {
     categories,
     locations,
   });
+}));
+
+// Visit beacon: the guest form fires this once per device per half hour
+// (sessionStorage-gated client side) so the dashboard can answer "how many
+// people open the form, from which cabin, and are the QR cards being
+// scanned?". Always 204 — a guest must never see this fail.
+router.post('/visit', rateLimit({ windowMs: 60 * 1000, max: 30, message: 'Slow down a little.' }), aw(async (req, res) => {
+  const settings = await getSettings();
+  if (settings.features.visitTracking === false) return res.status(204).end();
+  const ua = String(req.headers['user-agent'] || '');
+  if (/bot|crawl|spider|preview|headless|lighthouse/i.test(ua)) return res.status(204).end();
+
+  const b = req.body || {};
+  const locSlug = clampStr(b.loc, 120).toLowerCase();
+  const source = b.source === 'kiosk' ? 'kiosk' : (b.source === 'qr' ? 'qr' : 'web');
+  let locationId = null;
+  if (locSlug) {
+    const { rows } = await pool.query('SELECT id FROM locations WHERE slug = $1', [locSlug]);
+    locationId = rows[0]?.id || null;
+  }
+  // Per-day device fingerprint — distinct-counts as "unique visitors" without
+  // storing anything identifying, and rotates daily by construction.
+  const day = new Date().toISOString().slice(0, 10);
+  const visitorKey = crypto.createHash('sha256').update(`${req.ip}|${ua}|${day}`).digest('hex').slice(0, 16);
+  await pool.query(
+    'INSERT INTO visits (location_id, loc_slug, source, visitor_key) VALUES ($1,$2,$3,$4)',
+    [locationId, locSlug, source, visitorKey]);
+  res.status(204).end();
 }));
 
 router.post('/submissions', rateLimit({ windowMs: 5 * 60 * 1000, max: 12 }), upload.single('photo'), aw(async (req, res) => {

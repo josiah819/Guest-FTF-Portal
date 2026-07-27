@@ -180,3 +180,19 @@ CREATE TABLE IF NOT EXISTS submission_events (
 );
 
 CREATE INDEX IF NOT EXISTS idx_events_submission ON submission_events (submission_id, created_at);
+
+-- Guest-surface traffic: one row per guest-form open (client fires a beacon,
+-- gated to once per device per half hour). visitor_key is sha256(ip|ua|date)
+-- truncated — a per-day device fingerprint for unique counts; no raw IP or
+-- user agent is ever stored.
+CREATE TABLE IF NOT EXISTS visits (
+  id           SERIAL PRIMARY KEY,
+  location_id  INTEGER REFERENCES locations(id) ON DELETE SET NULL,
+  loc_slug     TEXT NOT NULL DEFAULT '',    -- slug as scanned, kept even if the location goes away
+  source       TEXT NOT NULL DEFAULT 'web', -- qr | kiosk | web
+  visitor_key  TEXT NOT NULL DEFAULT '',
+  created_at   TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_visits_created ON visits (created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_visits_loc     ON visits (location_id, created_at);

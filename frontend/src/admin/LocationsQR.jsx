@@ -117,7 +117,8 @@ export default function LocationsQR() {
                 <div className="muted" style={{ marginTop: 6, fontSize: 11 }}>Scan to report an issue or send feedback</div>
                 {/* Camera won't cooperate? The printed URL is the fallback. */}
                 <div className="qr-url">{origin.replace(/^https?:\/\//, '')}/?loc={r.slug}</div>
-                <a className="qr-preview no-print" href={`/?loc=${r.slug}`} target="_blank" rel="noreferrer">Preview what guests see ↗</a>
+                {/* preview=1 keeps staff clicks out of the visit stats */}
+                <a className="qr-preview no-print" href={`/?loc=${r.slug}&preview=1`} target="_blank" rel="noreferrer">Preview what guests see ↗</a>
               </div>
             ))}
           </div>

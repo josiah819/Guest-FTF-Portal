@@ -53,6 +53,7 @@ const DEFAULT_SETTINGS = {
     sla: true,                // response/resolution targets + overdue flags
     csvExport: true,
     qrGenerator: true,
+    visitTracking: true,      // count guest-form opens (by location + source) for the dashboard
     ftfForward: false,        // POST each submission to the FTF webhook below
     emailForward: false,      // notify integrations.notifyEmail per submission (needs SMTP env)
   },
@@ -309,7 +310,7 @@ const DEMO_MESSAGES = [
 
 async function seedDemoSubmissions(client) {
   const cats = (await client.query('SELECT id, slug, department_id FROM categories')).rows;
-  const locs = (await client.query('SELECT id, name FROM locations')).rows;
+  const locs = (await client.query('SELECT id, slug, name FROM locations')).rows;
   const bySlug = Object.fromEntries(cats.map(c => [c.slug, c]));
   const guests = ['Sarah M.', 'Coach Daniels', 'Mr. Okafor', '', 'Jess (teacher)', '', 'Pastor Kim', ''];
   const groups = ['Maplewood PS', 'St. Andrew’s College', 'Trinity Youth', 'Lakefield SS', ''];
@@ -410,6 +411,27 @@ async function seedDemoSubmissions(client) {
         ($1,'ai','Triage (demo): routed to Housekeeping, type request, urgency low', false, now() - interval '2 hours'),
         ($1,'route','Housekeeping is closed — held until opening; the SLA clock starts then', false, now() - interval '2 hours')`,
       [heldRow[0].id]);
+  }
+
+  // Visit traffic to match: every demo submission implies a form-open a few
+  // minutes earlier, plus background opens that never became a note — so the
+  // dashboard's visit counts and scan-to-note conversion have a story to tell.
+  await client.query(
+    `INSERT INTO visits (location_id, loc_slug, source, visitor_key, created_at)
+     SELECT s.location_id, coalesce(l.slug, ''), s.source,
+            'demo-' || md5(s.id::text), s.created_at - interval '4 minutes'
+       FROM submissions s LEFT JOIN locations l ON l.id = s.location_id`);
+  for (let i = 0; i < total * 2; i++) {
+    const web = i % 6 === 0;                    // a few direct landings with no QR location
+    const loc = locs[(i * 5) % locs.length];
+    const daysAgo = Math.floor(Math.pow(((i % total) / total), 1.4) * 20);
+    const created = new Date(Date.now() - daysAgo * 86400000);
+    created.setHours(9 + ((i * 7) % 11), (i * 17) % 60, 0, 0);
+    await client.query(
+      `INSERT INTO visits (location_id, loc_slug, source, visitor_key, created_at)
+       VALUES ($1,$2,$3,$4,$5)`,
+      [web ? null : loc.id, web ? '' : loc.slug, web ? 'web' : 'qr',
+       `demo-${i % 28}-${daysAgo}`, created]);
   }
 
   // …and an overnight safety item rerouted to Guest Services.

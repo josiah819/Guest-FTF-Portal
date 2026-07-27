@@ -30,6 +30,7 @@ const FEATURE_DEFS = [
   { key: 'sla', label: 'Response-time targets (SLA)', desc: 'Track first-response and resolution times against your targets; overdue items get called out.', extra: 'sla' },
   { key: 'csvExport', label: 'CSV export', desc: 'Download everything for deeper analysis in Excel or Power BI.' },
   { key: 'qrGenerator', label: 'QR code generator', desc: 'Print-ready QR cards per location on the Locations & QR page.' },
+  { key: 'visitTracking', label: 'Visit tracking', desc: 'Counts guest-form opens by location and source (QR / kiosk / web) so the dashboard shows whether the QR cards are actually being scanned. No cookies, nothing personal stored.' },
   { key: 'ftfForward', label: 'FTF hand-off (webhook)', desc: 'POST every new submission as JSON to your FTF intake endpoint so requests land in the existing workflow.', extra: 'ftf' },
   { key: 'emailForward', label: 'Email notifications', desc: 'Email the address below for every new submission. Needs SMTP configured on the server (see .env); without it, notifications are logged on the timeline instead.', extra: 'email' },
 ];

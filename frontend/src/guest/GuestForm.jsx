@@ -12,6 +12,7 @@ const blankForm = { type: '', category: '', message: '', urgency: 'normal', name
 // Returning guests shouldn't retype who they are. Saved only on their own
 // device, never in kiosk mode (shared screens).
 const GUEST_KEY = 'woodsvoice_guest';
+const VISIT_KEY = 'woodsvoice_visited';
 const CONTACT_KEYS = ['name', 'group', 'email', 'phone'];
 
 function loadSavedContact() {
@@ -46,6 +47,18 @@ export default function GuestForm() {
   const resetTimer = useRef(null);
 
   useEffect(() => {
+    // Count the landing — the dashboard uses these to show whether the QR
+    // cards are being scanned. Once per device per half hour, so refreshes
+    // and kiosk resets don't inflate the numbers; staff previews from the
+    // QR admin page (?preview=1) don't count at all.
+    if (params.get('preview') !== '1') {
+      let last = 0;
+      try { last = parseInt(sessionStorage.getItem(VISIT_KEY), 10) || 0; } catch { /* private mode */ }
+      if (Date.now() - last > 30 * 60 * 1000) {
+        api.visit({ loc: locParam, source: kioskParam ? 'kiosk' : (locParam ? 'qr' : 'web') });
+        try { sessionStorage.setItem(VISIT_KEY, String(Date.now())); } catch { /* ignore */ }
+      }
+    }
     api.publicConfig()
       .then(cfg => {
         setConfig(cfg);

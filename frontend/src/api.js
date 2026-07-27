@@ -29,6 +29,15 @@ async function request(path, { method = 'GET', body, formData, auth = false } = 
 export const api = {
   // guest
   publicConfig: () => request('/api/public/config'),
+  // Fire-and-forget visit beacon — never blocks the form, never surfaces errors.
+  visit: (body) => {
+    fetch('/api/public/visit', {
+      method: 'POST',
+      keepalive: true,
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    }).catch(() => {});
+  },
   submit: (formData) => request('/api/public/submissions', { method: 'POST', formData }),
   track: (code) => request(`/api/public/track/${encodeURIComponent(code)}`),
   rate: (code, stars, comment) =>

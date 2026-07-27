@@ -71,7 +71,13 @@ async function dashboardMetrics(days = 30, { actor = null, department = null } =
       ORDER BY d.sort, d.name`,
     allowed === null ? p : [...p, allowed]);
 
-  const [totals, series, byCategory, byLocation, byStatus, byType, byUrgency, byTriage, csat, hotspots, slaRowQ, scorecards, trend] =
+  // Guest-surface traffic. Visits have no department dimension, so this block
+  // is site-wide for anyone who can open the dashboard — it holds page-open
+  // counts only, never submission content.
+  const visitsOn = settings.features.visitTracking !== false;
+
+  const [totals, series, byCategory, byLocation, byStatus, byType, byUrgency, byTriage, csat, hotspots, slaRowQ, scorecards, trend,
+         visitTotals, visitSeries, visitsByLocation] =
     await Promise.all([
       q(`SELECT
            count(*) FILTER (WHERE s.created_at > now() - make_interval(days => $1))::int AS in_range,
@@ -158,6 +164,41 @@ async function dashboardMetrics(days = 30, { actor = null, department = null } =
           FROM submissions s
          WHERE s.created_at > now() - make_interval(days => $1) __SCOPE__
          GROUP BY 1 ORDER BY 1`, p),
+      visitsOn ? pool.query(
+        `SELECT count(*)::int AS total,
+                count(DISTINCT visitor_key)::int AS unique_visitors,
+                count(*) FILTER (WHERE source = 'qr')::int AS qr,
+                count(*) FILTER (WHERE source = 'kiosk')::int AS kiosk,
+                count(*) FILTER (WHERE source = 'web')::int AS web
+           FROM visits WHERE created_at > now() - make_interval(days => $1)`, p) : Promise.resolve({ rows: [{}] }),
+      visitsOn ? pool.query(
+        `SELECT to_char(d.day, 'YYYY-MM-DD') AS day, coalesce(n.count, 0)::int AS count
+           FROM generate_series(date_trunc('day', now()) - make_interval(days => $1 - 1),
+                                date_trunc('day', now()), '1 day') AS d(day)
+           LEFT JOIN (
+             SELECT date_trunc('day', created_at) AS day, count(*) AS count
+               FROM visits
+              WHERE created_at > date_trunc('day', now()) - make_interval(days => $1 - 1)
+              GROUP BY 1) n ON n.day = d.day
+          ORDER BY d.day`, p) : Promise.resolve({ rows: [] }),
+      // Every active location — zero-visit rows are the point (a QR card
+      // nobody scans may be missing or damaged). Inactive ones only appear
+      // while they still draw traffic.
+      visitsOn ? pool.query(
+        `SELECT l.id, l.name, l.area, l.active,
+                coalesce(v.visits, 0)::int AS visits,
+                coalesce(v.qr_visits, 0)::int AS qr_visits,
+                coalesce(s.submissions, 0)::int AS submissions
+           FROM locations l
+           LEFT JOIN (SELECT location_id, count(*) AS visits,
+                             count(*) FILTER (WHERE source = 'qr') AS qr_visits
+                        FROM visits WHERE created_at > now() - make_interval(days => $1)
+                       GROUP BY 1) v ON v.location_id = l.id
+           LEFT JOIN (SELECT location_id, count(*) AS submissions
+                        FROM submissions WHERE created_at > now() - make_interval(days => $1)
+                       GROUP BY 1) s ON s.location_id = l.id
+          WHERE l.active OR coalesce(v.visits, 0) > 0
+          ORDER BY visits DESC, l.area, l.sort, l.name`, p) : Promise.resolve({ rows: [] }),
     ]);
 
   const pct = (met, n) => n > 0 ? Math.round((met / n) * 100) : null;
@@ -177,6 +218,12 @@ async function dashboardMetrics(days = 30, { actor = null, department = null } =
     byTriage: byTriage.rows,
     hotspots: hotspots.rows,
     scorecards: scorecards.rows,
+    visits: {
+      enabled: visitsOn,
+      ...visitTotals.rows[0],
+      series: visitSeries.rows,
+      byLocation: visitsByLocation.rows,
+    },
     trend: trend.rows.map(w => ({
       week: w.week,
       response_pct: pct(w.resp_met, w.resp_due),

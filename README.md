@@ -22,6 +22,7 @@ Built to match the vision in Cindy's email:
 | AI categorizes submissions | Claude triages every submission (category, urgency, one-line summary); keyword fallback without an API key |
 | Route to departments / FTF | Category → department routing, plus an **FTF webhook** that POSTs each submission as JSON to your intake endpoint |
 | Visibility into issues, trends, response times | Dashboard: volume, categories, locations, CSAT, avg first-response & resolution, SLA watch, hotspots, AI insights |
+| "Is anyone actually scanning the QR codes?" | **Visit tracking** — every guest-form open is counted (by location + QR/kiosk/web source, no cookies or personal data); the dashboard shows visits over time, arrival sources, and per-location scans vs. notes sent, flagging cards with zero scans |
 | "Start small, test the wording" | Every guest-facing string, every field requirement and every feature is editable/toggleable in **Admin → Settings** |
 | Don't create hotel-concierge expectations | Configurable **expectation banner** on the form (on by default) |
 
