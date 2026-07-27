@@ -1,15 +1,21 @@
 /* ============================================================
    WoodsVoice design system — Muskoka Woods brand
-   Palette:   Muskoka Blue #1E5A64 · dark #1B4849
+   Palette:   Muskoka Blue #1E5A64 · dark #1B4849  (admin surface)
+              Sign Forest #006134 · pine #64983F   (guest surface)
               Muskoka Green #A3CD42 · dark #1F6331
               Schools & Groups Orange #C26628
-   Type:      League Gothic (main headings only)
-              Montserrat (subheads, labels, buttons)
-              Nunito Sans (body)
+   Type:      League Gothic (admin headings)
+              Montserrat (guest surface — Gotham stand-in — plus
+              admin subheads, labels, buttons)
+              Nunito Sans (admin body)
    ============================================================ */
 
 :root {
   --teal: #1E5A64;
+  --forest: #006134;
+  --forest-deep: #004626;
+  --forest-mist: #E8F1EB;
+  --pine: #64983F;
   --teal-dark: #1B4849;
   --teal-deep: #12343A;
   --teal-mist: #E3EDEE;
@@ -79,7 +85,9 @@ button { font-family: var(--font-head); }
 }
 
 /* ============================================================
-   GUEST SURFACE — lakeside postcard
+   GUEST SURFACE — the "Report a Problem" sign, on screen
+   Flat sign-forest green, Gotham-style Montserrat, white
+   panels, lime accents, pine silhouettes cropped by the edges.
    ============================================================ */
 
 .guest-shell {
@@ -88,23 +96,31 @@ button { font-family: var(--font-head); }
   display: flex;
   flex-direction: column;
   align-items: center;
-  padding: 20px 16px calc(28px + env(safe-area-inset-bottom));
-  background:
-    radial-gradient(120% 90% at 85% -10%, rgba(163, 205, 66, 0.16), transparent 55%),
-    radial-gradient(140% 120% at 10% 110%, rgba(18, 52, 58, 0.9), transparent 60%),
-    linear-gradient(168deg, #24656F 0%, var(--teal) 38%, var(--teal-dark) 100%);
-  background-attachment: fixed;
+  padding: 28px 16px calc(30px + env(safe-area-inset-bottom));
+  background: var(--forest);
+  font-family: var(--font-head);
   position: relative;
   overflow-x: hidden;
 }
-.guest-shell::before {
-  /* topographic lake contours */
+/* pine silhouettes, bleeding off the bottom corners like the printed sign */
+.guest-shell::before,
+.guest-shell::after {
   content: '';
   position: fixed;
-  inset: -10%;
+  bottom: 0;
+  z-index: 0;
   pointer-events: none;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='900' height='900' viewBox='0 0 900 900'%3E%3Cg fill='none' stroke='%23F7F4EC' stroke-opacity='0.055' stroke-width='1.6'%3E%3Cpath d='M196 168c70-52 188-44 236 16s22 150-50 192-186 38-232-28-24-128 46-180z'/%3E%3Cpath d='M214 200c56-40 150-34 188 14s16 118-42 152-148 30-184-22-18-104 38-144z'/%3E%3Cpath d='M236 234c40-28 108-24 136 10s10 84-32 110-106 20-132-16-12-76 28-104z'/%3E%3Cpath d='M642 560c84-28 184 8 206 76s-34 142-118 162-180-12-198-82 26-128 110-156z'/%3E%3Cpath d='M652 598c66-22 144 6 162 60s-28 112-94 128-142-10-156-64 22-102 88-124z'/%3E%3Cpath d='M666 638c46-16 100 4 112 42s-20 78-66 90-98-8-108-46 16-70 62-86z'/%3E%3Cpath d='M-40 600c60-90 200-110 280-50s70 180-20 240-240 40-280-40c-26-52-16-96 20-150z'/%3E%3Cpath d='M760 60c50-30 120-20 150 20s10 100-40 130-130 20-150-20-10-100 40-130z'/%3E%3C/g%3E%3C/svg%3E");
-  background-size: 900px 900px;
+  background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 200 260'%3E%3Cpolygon fill='%2364983F' points='100,0 152,86 129,86 178,172 151,172 200,260 0,260 49,172 22,172 71,86 48,86'/%3E%3C/svg%3E") bottom / contain no-repeat;
+}
+.guest-shell::before {
+  width: clamp(150px, 24vw, 300px);
+  aspect-ratio: 200 / 260;
+  left: clamp(-96px, -8vw, -52px);
+}
+.guest-shell::after {
+  width: clamp(190px, 30vw, 380px);
+  aspect-ratio: 200 / 260;
+  right: clamp(-124px, -10vw, -64px);
 }
 .guest-shell > * { position: relative; z-index: 1; }
 
@@ -112,20 +128,21 @@ button { font-family: var(--font-head); }
   width: 100%;
   max-width: 560px;
   display: flex;
+  flex-direction: column;
   align-items: center;
-  justify-content: space-between;
   gap: 12px;
-  padding: 4px 2px 18px;
+  padding: 6px 2px 10px;
+  text-align: center;
 }
-.guest-top img { height: 40px; width: auto; }
+.guest-top img { height: 54px; width: auto; }
 .guest-top .pill {
   font-family: var(--font-head);
   font-weight: 700;
   font-size: 10.5px;
   letter-spacing: 0.18em;
   text-transform: uppercase;
-  color: var(--green);
-  border: 1px solid rgba(163, 205, 66, 0.45);
+  color: var(--green-bright);
+  border: 1px solid rgba(183, 220, 92, 0.5);
   border-radius: 999px;
   padding: 7px 13px;
   white-space: nowrap;
@@ -133,45 +150,83 @@ button { font-family: var(--font-head); }
 
 .guest-hero {
   width: 100%;
-  max-width: 560px;
-  color: var(--paper);
-  padding: 8px 2px 22px;
+  max-width: 620px;
+  color: #FFFFFF;
+  text-align: center;
+  padding: 12px 2px 26px;
 }
-.guest-hero .kicker { color: var(--green); margin-bottom: 10px; }
+.guest-hero .kicker { color: var(--green-bright); margin-bottom: 12px; }
 .guest-hero h1 {
-  font-size: clamp(46px, 11vw, 74px);
-  color: var(--paper);
+  font-size: clamp(40px, 10.5vw, 72px);
+  color: #FFFFFF;
   text-wrap: balance;
 }
 .guest-hero p {
-  margin: 14px 0 0;
-  max-width: 46ch;
-  color: rgba(247, 244, 236, 0.82);
-  font-size: 16.5px;
+  margin: 16px auto 0;
+  max-width: 36ch;
+  color: rgba(255, 255, 255, 0.95);
+  font-weight: 300;
+  font-size: clamp(17px, 4.4vw, 21px);
+  line-height: 1.5;
 }
 
 .guest-card {
   width: 100%;
   max-width: 560px;
-  background: var(--paper);
-  border-radius: var(--r-lg);
-  box-shadow: var(--shadow-pop);
+  background: #FFFFFF;
+  border-radius: 4px;
+  box-shadow: 0 20px 48px -22px rgba(0, 26, 12, 0.55);
   padding: clamp(20px, 5vw, 32px);
 }
+
+/* location badge — white plate with green caps, straight off the sign */
+.guest-locwrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding-bottom: 20px;
+}
+.guest-locbadge {
+  background: #FFFFFF;
+  color: var(--pine);
+  border-radius: 3px;
+  font-weight: 800;
+  font-size: clamp(15px, 4vw, 19px);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  text-align: center;
+  padding: 14px 28px;
+}
+.guest-locchange {
+  border: 0;
+  background: none;
+  cursor: pointer;
+  font-family: var(--font-head);
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  color: rgba(255, 255, 255, 0.85);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.guest-locchange:hover { color: var(--green-bright); }
 
 .guest-foot {
   width: 100%;
   max-width: 560px;
   display: flex;
+  flex-direction: column;
   align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  padding-top: 22px;
-  color: rgba(247, 244, 236, 0.55);
-  font-size: 12.5px;
+  gap: 8px;
+  padding-top: 26px;
+  color: rgba(255, 255, 255, 0.88);
+  font-size: 13px;
+  font-style: italic;
+  text-align: center;
 }
-.guest-foot a { color: rgba(247, 244, 236, 0.75); text-decoration: none; }
-.guest-foot a:hover { color: var(--green); }
+.guest-foot a { color: #FFFFFF; text-decoration: underline; text-underline-offset: 3px; }
+.guest-foot a:hover { color: var(--green-bright); }
 
 /* entrance */
 @keyframes riseIn {
@@ -256,13 +311,13 @@ button { font-family: var(--font-head); }
   letter-spacing: 0.03em;
   color: var(--ink);
 }
-.cat-tile:hover { border-color: var(--teal); transform: translateY(-1px); }
+.cat-tile:hover { border-color: var(--forest); transform: translateY(-1px); }
 .cat-tile.on {
-  border-color: var(--teal);
-  background: var(--teal);
-  box-shadow: inset 0 0 0 1px var(--teal);
+  border-color: var(--forest);
+  background: var(--forest);
+  box-shadow: inset 0 0 0 1px var(--forest);
 }
-.cat-tile.on .nm { color: var(--paper); }
+.cat-tile.on .nm { color: #FFFFFF; }
 
 textarea.input, input.input, select.input {
   width: 100%;
@@ -282,34 +337,6 @@ textarea.input { min-height: 110px; resize: vertical; }
   box-shadow: 0 0 0 3px rgba(30, 90, 100, 0.14);
 }
 .input::placeholder { color: var(--ink-faint); }
-
-.loc-bar {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  background: var(--teal-mist);
-  border: 1.5px solid var(--line-teal);
-  border-radius: var(--r-md);
-  padding: 11px 14px;
-}
-.loc-bar .where {
-  font-family: var(--font-head);
-  font-weight: 700;
-  font-size: 14px;
-  color: var(--teal-dark);
-  flex: 1;
-}
-.loc-bar button {
-  border: 0;
-  background: none;
-  color: var(--teal);
-  font-weight: 700;
-  font-size: 12px;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  cursor: pointer;
-  padding: 2px;
-}
 
 .urgency-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
 .urgency-row .chip { text-align: center; padding: 10px 6px; font-size: 11.5px; }
@@ -394,7 +421,7 @@ textarea.input { min-height: 110px; resize: vertical; }
   font-size: 14px;
   background: var(--card);
 }
-.photo-drop:hover { border-color: var(--teal); }
+.photo-drop:hover { border-color: var(--forest); }
 .photo-drop img { height: 44px; width: 44px; object-fit: cover; border-radius: 8px; }
 
 /* success state */
@@ -409,18 +436,18 @@ textarea.input { min-height: 110px; resize: vertical; }
   margin: 0 auto 18px;
   border-radius: 50%;
   background: var(--green);
-  color: var(--teal-deep);
+  color: var(--forest-deep);
   display: flex; align-items: center; justify-content: center;
   font-size: 40px;
   animation: popIn 0.45s cubic-bezier(0.2, 0.9, 0.3, 1.4) both;
 }
-.success-wrap h2 { font-size: 44px; color: var(--teal-dark); }
+.success-wrap h2 { font-size: clamp(30px, 7vw, 40px); color: var(--forest); }
 .code-box {
   display: inline-flex;
   align-items: center;
   gap: 10px;
   margin-top: 18px;
-  background: var(--teal-deep);
+  background: var(--forest-deep);
   color: var(--green);
   font-family: var(--font-head);
   font-weight: 800;
@@ -479,6 +506,49 @@ textarea.input { min-height: 110px; resize: vertical; }
 .guest-shell.kiosk .cat-tile .nm { font-size: 15px; }
 .guest-shell.kiosk textarea.input { min-height: 140px; font-size: 18px; }
 .guest-shell.kiosk .btn-primary { padding: 21px 28px; font-size: 17px; }
+
+/* ---------- sign-language overrides for classes shared with admin ----------
+   The admin surface keeps League Gothic + Muskoka Blue; everything inside
+   .guest-shell speaks the sign's Gotham-black-and-forest-green instead. */
+
+.guest-shell .display {
+  font-family: var(--font-head);
+  font-weight: 900;
+  letter-spacing: 0.005em;
+  line-height: 0.98;
+}
+.guest-shell .input { font-family: var(--font-head); }
+.guest-shell .input:focus {
+  border-color: var(--forest);
+  box-shadow: 0 0 0 3px rgba(0, 97, 52, 0.16);
+}
+.guest-shell .field-label { color: var(--forest); }
+.guest-shell .chip:hover { border-color: var(--forest); color: var(--forest); }
+.guest-shell .chip.on {
+  background: var(--forest);
+  border-color: var(--forest);
+  color: #FFFFFF;
+}
+.guest-shell .btn-primary {
+  color: var(--forest-deep);
+  box-shadow: 0 10px 26px -10px rgba(163, 205, 66, 0.45);
+}
+.guest-shell .btn-teal { background: var(--forest); color: #FFFFFF; }
+.guest-shell .btn-teal:hover:not(:disabled) { background: var(--forest-deep); }
+.guest-shell .btn-ghost { color: var(--forest); border-color: #CFE0D6; }
+.guest-shell .btn-ghost:hover { border-color: var(--forest); }
+.guest-shell .expectation {
+  background: var(--forest-mist);
+  border-color: #C7DCCE;
+  color: #114D2E;
+}
+.guest-shell .timeline li::before { background: var(--forest); border-color: #FFFFFF; }
+.guest-shell .guest-card a,
+.guest-shell .how-card a { color: var(--forest); }
+.guest-shell .spinner {
+  border-color: rgba(0, 97, 52, 0.18);
+  border-top-color: var(--forest);
+}
 
 /* ============================================================
    ADMIN SURFACE — field office
@@ -1094,10 +1164,10 @@ textarea.input { min-height: 110px; resize: vertical; }
   text-align: left;
   transition: border-color 0.15s ease;
 }
-.contact-teaser:hover { border-color: var(--teal); }
+.contact-teaser:hover { border-color: var(--forest); }
 .contact-teaser .ic { flex-shrink: 0; }
 .contact-teaser .tx { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.contact-teaser .tx strong { color: var(--teal-dark); }
+.contact-teaser .tx strong { color: var(--forest); }
 .contact-teaser .edit {
   flex-shrink: 0;
   font-family: var(--font-head);
@@ -1105,7 +1175,7 @@ textarea.input { min-height: 110px; resize: vertical; }
   font-size: 10.5px;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: var(--teal);
+  color: var(--forest);
 }
 
 .contact-block { margin-top: 4px; }
@@ -1193,9 +1263,9 @@ textarea.input { min-height: 110px; resize: vertical; }
 .how-step {
   display: flex;
   gap: 14px;
-  background: var(--paper);
-  border-radius: var(--r-lg);
-  box-shadow: var(--shadow-pop);
+  background: #FFFFFF;
+  border-radius: 4px;
+  box-shadow: 0 20px 48px -22px rgba(0, 26, 12, 0.55);
   padding: 18px 20px;
 }
 .how-step__badge {
@@ -1212,25 +1282,25 @@ textarea.input { min-height: 110px; resize: vertical; }
   font-weight: 800;
   font-size: 11px;
   letter-spacing: 0.14em;
-  color: var(--orange);
+  color: var(--green-dark);
 }
 .how-step h3 {
   margin: 2px 0 4px;
   font-family: var(--font-head);
   font-size: 15.5px;
-  color: var(--teal-dark);
+  color: var(--forest);
 }
 .how-step p { margin: 0; font-size: 14px; color: var(--ink-soft); }
 
 .how-card {
-  background: var(--paper);
-  border-radius: var(--r-lg);
-  box-shadow: var(--shadow-pop);
+  background: #FFFFFF;
+  border-radius: 4px;
+  box-shadow: 0 20px 48px -22px rgba(0, 26, 12, 0.55);
   padding: clamp(20px, 5vw, 30px);
 }
 .how-card--slim { padding: 18px 22px; }
-.how-kicker { color: var(--orange); }
-.how-h2 { font-size: clamp(30px, 7vw, 40px); color: var(--teal-dark); margin: 6px 0 14px; }
+.how-kicker { color: var(--green-dark); }
+.how-h2 { font-size: clamp(30px, 7vw, 40px); color: var(--forest); margin: 6px 0 14px; }
 
 .how-list { list-style: none; margin: 0; padding: 0; }
 .how-list li {
@@ -1262,7 +1332,7 @@ textarea.input { min-height: 110px; resize: vertical; }
   font-family: var(--font-head);
   font-weight: 800;
   font-size: 13px;
-  color: var(--teal-dark);
+  color: var(--forest);
 }
 .how-measure .d { font-size: 12.5px; color: var(--ink-soft); margin-top: 3px; }
 
@@ -1284,7 +1354,7 @@ textarea.input { min-height: 110px; resize: vertical; }
   gap: 12px;
 }
 .how-demo-steps li { font-size: 14px; color: var(--ink-soft); padding-left: 4px; }
-.how-demo-steps li::marker { font-family: var(--font-head); font-weight: 800; color: var(--orange); }
+.how-demo-steps li::marker { font-family: var(--font-head); font-weight: 800; color: var(--green-dark); }
 .how-demo-steps strong { display: block; color: var(--ink); font-family: var(--font-head); font-size: 13.5px; }
 
 .how-qr {
@@ -1297,11 +1367,12 @@ textarea.input { min-height: 110px; resize: vertical; }
 }
 .how-qr canvas { width: 158px !important; height: 158px !important; }
 .how-qr .nm {
-  font-family: var(--font-display);
+  font-family: var(--font-head);
+  font-weight: 900;
   text-transform: uppercase;
-  font-size: 22px;
-  color: var(--teal-dark);
-  margin-top: 6px;
+  font-size: 17px;
+  color: var(--forest);
+  margin-top: 8px;
 }
 .how-qr .ar { font-size: 10.5px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-faint); word-break: break-all; }
 
@@ -1323,13 +1394,13 @@ textarea.input { min-height: 110px; resize: vertical; }
   font-size: 10.5px;
   letter-spacing: 0.14em;
   text-transform: uppercase;
-  color: var(--orange);
+  color: var(--green-dark);
 }
 .how-phase h3 {
   margin: 6px 0 4px;
   font-family: var(--font-head);
   font-size: 14.5px;
-  color: var(--teal-dark);
+  color: var(--forest);
 }
 .how-phase .who {
   font-size: 11px;

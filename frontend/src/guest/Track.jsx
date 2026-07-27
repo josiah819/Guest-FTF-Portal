@@ -5,7 +5,7 @@ import { applyTheme } from '../theme';
 
 // Status label text comes from admin-editable content; the colours stay ours.
 const STATUS_STYLE = {
-  new: { bg: 'var(--teal-mist)', fg: 'var(--teal-dark)' },
+  new: { bg: 'var(--forest-mist)', fg: 'var(--forest)' },
   in_progress: { bg: '#F6E8D8', fg: '#8A4A16' },
   resolved: { bg: '#E4F0CD', fg: 'var(--green-dark)' },
   closed: { bg: '#E8E5DC', fg: 'var(--ink-faint)' },

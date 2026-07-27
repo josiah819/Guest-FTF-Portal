@@ -205,7 +205,6 @@ export default function GuestForm() {
     <div className={shellClass}>
       <header className="guest-top rise">
         <img src={branding.logoLight || '/brand/mw-logo-white.png'} alt={g.orgName} />
-        <span className="pill">{g.appName}</span>
       </header>
 
       {success ? (
@@ -241,10 +240,18 @@ export default function GuestForm() {
       ) : (
         <>
           <section className="guest-hero rise rise-1">
-            <div className="kicker">{g.orgName} · Guest Care</div>
             <h1 className="display">{g.welcomeTitle}</h1>
             <p>{g.welcomeSubtitle}</p>
           </section>
+
+          {showField('location') && locLocked && lockedLocation && (
+            <div className="guest-locwrap rise rise-1">
+              <div className="guest-locbadge">{lockedLocation.name}</div>
+              <button type="button" className="guest-locchange" onClick={() => setLocLocked(false)}>
+                {ct.changeLocationLabel || 'Change'}
+              </button>
+            </div>
+          )}
 
           <main className="guest-card rise rise-2">
             <form onSubmit={submit} noValidate>
@@ -286,25 +293,17 @@ export default function GuestForm() {
                 </>
               )}
 
-              {showField('location') && (
+              {showField('location') && !(locLocked && lockedLocation) && (
                 <>
                   <div className="field-label">{ct.locationLabel || 'Where?'} {reqMark('location')}</div>
-                  {locLocked && lockedLocation ? (
-                    <div className="loc-bar">
-                      <span>📍</span>
-                      <span className="where">{lockedLocation.name}</span>
-                      <button type="button" onClick={() => setLocLocked(false)}>{ct.changeLocationLabel || 'Change'}</button>
-                    </div>
-                  ) : (
-                    <select className="input" value={locationSlug} onChange={e => setLocationSlug(e.target.value)}>
-                      <option value="">{ct.locationPlaceholder || 'Choose a location…'}</option>
-                      {locationsByArea.map(([area, locs]) => (
-                        <optgroup key={area} label={area}>
-                          {locs.map(l => <option key={l.slug} value={l.slug}>{l.name}</option>)}
-                        </optgroup>
-                      ))}
-                    </select>
-                  )}
+                  <select className="input" value={locationSlug} onChange={e => setLocationSlug(e.target.value)}>
+                    <option value="">{ct.locationPlaceholder || 'Choose a location…'}</option>
+                    {locationsByArea.map(([area, locs]) => (
+                      <optgroup key={area} label={area}>
+                        {locs.map(l => <option key={l.slug} value={l.slug}>{l.name}</option>)}
+                      </optgroup>
+                    ))}
+                  </select>
                 </>
               )}
 
