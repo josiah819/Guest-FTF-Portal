@@ -29,7 +29,7 @@ const PERMISSIONS = [
   { key: 'settings.manage', group: 'Configuration', label: 'Manage settings',
     desc: 'Form fields, features, SLA targets, AI provider, integrations, accountability.' },
   { key: 'content.manage', group: 'Configuration', label: 'Edit content & branding',
-    desc: 'All guest-facing wording, labels, the How-it-works page, logos and colours.' },
+    desc: 'All guest-facing wording, labels, logos and colours.' },
   { key: 'catalogs.manage', group: 'Configuration', label: 'Manage catalogs',
     desc: 'Add or edit categories, locations, and department names/emails.' },
   { key: 'routing.manage', group: 'Configuration', label: 'Manage hours & routing',

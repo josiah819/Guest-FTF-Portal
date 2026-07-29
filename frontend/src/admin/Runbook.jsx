@@ -272,16 +272,6 @@ export default function Runbook() {
           );
         })}
       </div>
-
-      {/* Pilot pointer */}
-      <div className="card">
-        <h3>Starting small</h3>
-        <p className="hint" style={{ marginBottom: 0 }}>
-          The phased pilot plan (which areas, which departments, what we measure, and when to widen)
-          lives on the shareable <a href="/how" target="_blank" rel="noreferrer">How it works</a> page —
-          built to be sent to anyone who asks “so how would we actually roll this out?”
-        </p>
-      </div>
     </>
   );
 }

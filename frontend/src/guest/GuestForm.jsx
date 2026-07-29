@@ -409,7 +409,6 @@ export default function GuestForm() {
       <footer className="guest-foot rise rise-3">
         <span>© {new Date().getFullYear()} {g.orgName}</span>
         <span className="guest-foot__links">
-          <Link to="/how">{ct.howLinkLabel || 'How this works'}</Link>
           {config.features.tracking && !success && <Link to="/track">{ct.trackLinkLabel || 'Check a submission →'}</Link>}
         </span>
       </footer>

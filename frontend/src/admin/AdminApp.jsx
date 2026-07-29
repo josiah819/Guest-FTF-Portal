@@ -131,7 +131,6 @@ export default function AdminApp() {
             ))}
             <div className="admin-nav__aux">
               <a href="/" target="_blank" rel="noreferrer"><span className="ic">↗</span><span className="lb">Guest form</span></a>
-              <a href="/how" target="_blank" rel="noreferrer"><span className="ic">✨</span><span className="lb">How it works</span></a>
             </div>
           </nav>
           <div className="who">

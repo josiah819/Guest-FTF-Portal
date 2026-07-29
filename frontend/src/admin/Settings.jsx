@@ -316,7 +316,7 @@ export default function Settings() {
     markDirty(section);
   }
 
-  // Nested updates (content.form.messageLabel, content.how.journey, …).
+  // Nested updates (content.form.messageLabel, content.track.title, …).
   function patchPath(section, path, value) {
     setS(prev => {
       const next = { ...prev, [section]: { ...prev[section] } };

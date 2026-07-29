@@ -58,7 +58,6 @@ Caddy reverse proxy serves it at `woodsvoice.10.0.12.189.nip.io` (labels on the
 | http://woodsvoice.10.0.12.189.nip.io/?loc=cabin-3 | Guest form with location pre-filled — what a cabin QR encodes |
 | http://woodsvoice.10.0.12.189.nip.io/?kiosk=1 | Kiosk mode for a lobby tablet (big buttons, auto-reset) |
 | http://woodsvoice.10.0.12.189.nip.io/t/MW-XXXXXX | Guest tracking page |
-| http://woodsvoice.10.0.12.189.nip.io/how | **How it works** — demo walkthrough, notifications, metrics, pilot plan (no login; send this to Cindy) |
 | http://woodsvoice.10.0.12.189.nip.io/admin | Guest Care HQ (dashboard, inbox, runbook, settings) |
 | http://woodsvoice.10.0.12.189.nip.io/admin/runbook | **Runbook & SOPs** — owners, risks, security, printable procedures |
 

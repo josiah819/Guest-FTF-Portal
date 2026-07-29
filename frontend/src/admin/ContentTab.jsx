@@ -3,8 +3,7 @@ import { api } from '../api';
 import { BRAND_DEFAULTS } from '../theme';
 
 // Settings → Content: every guest-facing word, label, page section, logo and
-// colour. Edits are local until the save bar PUTs the dirty sections; list
-// editors always produce complete arrays (the server replaces arrays wholesale).
+// colour. Edits are local until the save bar PUTs the dirty sections.
 
 function Section({ title, hint, children, defaultOpen = false }) {
   const [open, setOpen] = useState(defaultOpen);
@@ -29,46 +28,6 @@ function TextRow({ label, value, onChange, area, placeholder }) {
       {area
         ? <textarea className="input" style={{ minHeight: 64 }} value={value || ''} placeholder={placeholder} onChange={e => onChange(e.target.value)} />
         : <input className="input" value={value || ''} placeholder={placeholder} onChange={e => onChange(e.target.value)} />}
-    </div>
-  );
-}
-
-// Generic list editor: add / remove / reorder rows of small field sets.
-function ListEditor({ items, onChange, fields, addLabel }) {
-  const list = items || [];
-  const update = (i, key, value) => {
-    const next = list.map((it, n) => n === i ? { ...it, [key]: value } : it);
-    onChange(next);
-  };
-  const move = (i, dir) => {
-    const j = i + dir;
-    if (j < 0 || j >= list.length) return;
-    const next = [...list];
-    [next[i], next[j]] = [next[j], next[i]];
-    onChange(next);
-  };
-  const remove = (i) => onChange(list.filter((_, n) => n !== i));
-  const add = () => onChange([...list, Object.fromEntries(fields.map(f => [f.key, '']))]);
-
-  return (
-    <div>
-      {list.map((it, i) => (
-        <div className="list-ed__row" key={i}>
-          <div className="list-ed__fields">
-            {fields.map(f => f.area
-              ? <textarea key={f.key} className="input" style={{ minHeight: 56 }} placeholder={f.label}
-                  value={it[f.key] || ''} onChange={e => update(i, f.key, e.target.value)} />
-              : <input key={f.key} className="input" style={f.narrow ? { maxWidth: 110 } : undefined} placeholder={f.label}
-                  value={it[f.key] || ''} onChange={e => update(i, f.key, e.target.value)} />)}
-          </div>
-          <div className="list-ed__ctl">
-            <button type="button" title="Move up" onClick={() => move(i, -1)} disabled={i === 0}>↑</button>
-            <button type="button" title="Move down" onClick={() => move(i, 1)} disabled={i === list.length - 1}>↓</button>
-            <button type="button" title="Remove" className="danger" onClick={() => remove(i)}>✕</button>
-          </div>
-        </div>
-      ))}
-      <button type="button" className="btn btn-ghost btn-small" onClick={add}>{addLabel || '+ Add item'}</button>
     </div>
   );
 }
@@ -127,14 +86,11 @@ export default function ContentTab({ s, patch, patchPath, applySettings, setToas
   const form = c.form || {};
   const track = c.track || {};
   const labels = c.labels || {};
-  const how = c.how || {};
   const branding = c.branding || {};
   const colors = branding.colors || {};
 
   const setForm = (key) => (v) => patchPath('content', ['form', key], v);
   const setTrack = (key) => (v) => patchPath('content', ['track', key], v);
-  const setHow = (key) => (v) => patchPath('content', ['how', key], v);
-  const setHowSub = (sub, key) => (v) => patchPath('content', ['how', sub, key], v);
 
   return (
     <>
@@ -214,7 +170,6 @@ export default function ContentTab({ s, patch, patchPath, applySettings, setToas
           <TextRow label="Kiosk reset note" value={form.kioskResetNote} onChange={setForm('kioskResetNote')} />
           <TextRow label="Keep-code text" value={form.keepCodePrefix} onChange={setForm('keepCodePrefix')} />
           <TextRow label="Keep-code link text" value={form.keepCodeLink} onChange={setForm('keepCodeLink')} />
-          <TextRow label="Footer: how-it-works link" value={form.howLinkLabel} onChange={setForm('howLinkLabel')} />
           <TextRow label="Footer: tracking link" value={form.trackLinkLabel} onChange={setForm('trackLinkLabel')} />
         </div>
       </Section>
@@ -242,79 +197,6 @@ export default function ContentTab({ s, patch, patchPath, applySettings, setToas
           <TextRow label="Send-rating button" value={track.sendRatingLabel} onChange={setTrack('sendRatingLabel')} />
           <TextRow label="Footer: new submission" value={track.newSubmissionLabel} onChange={setTrack('newSubmissionLabel')} />
         </div>
-      </Section>
-
-      <Section title="How-it-works page" hint="The public demo & pilot page at /how.">
-        <div className="form-grid">
-          <TextRow label="Header pill" value={how.pill} onChange={setHow('pill')} />
-          <TextRow label="Kicker" value={how.kicker} onChange={setHow('kicker')} />
-          <TextRow label="Hero title" value={how.heroTitle} onChange={setHow('heroTitle')} />
-        </div>
-        <TextRow label="Hero subtitle" value={how.heroSubtitle} onChange={setHow('heroSubtitle')} area />
-
-        <div className="field-label">The journey steps</div>
-        <ListEditor items={how.journey} addLabel="+ Add step"
-          fields={[{ key: 'emoji', label: '📱', narrow: true }, { key: 'title', label: 'Title' }, { key: 'body', label: 'Body', area: true }]}
-          onChange={v => patchPath('content', ['how', 'journey'], v)} />
-
-        <div className="field-label">Staff side</div>
-        <div className="form-grid">
-          <TextRow label="Kicker" value={(how.staff || {}).kicker} onChange={setHowSub('staff', 'kicker')} />
-          <TextRow label="Heading" value={(how.staff || {}).heading} onChange={setHowSub('staff', 'heading')} />
-        </div>
-        <ListEditor items={(how.staff || {}).items} addLabel="+ Add point"
-          fields={[{ key: 'title', label: 'Bold lead-in' }, { key: 'body', label: 'Body', area: true }]}
-          onChange={v => patchPath('content', ['how', 'staff', 'items'], v)} />
-
-        <div className="field-label">Measures</div>
-        <div className="form-grid">
-          <TextRow label="Kicker" value={(how.measures || {}).kicker} onChange={setHowSub('measures', 'kicker')} />
-          <TextRow label="Heading" value={(how.measures || {}).heading} onChange={setHowSub('measures', 'heading')} />
-        </div>
-        <ListEditor items={(how.measures || {}).items} addLabel="+ Add measure"
-          fields={[{ key: 'title', label: 'Measure' }, { key: 'desc', label: 'Why it matters', area: true }]}
-          onChange={v => patchPath('content', ['how', 'measures', 'items'], v)} />
-        <TextRow label="Measures note" value={(how.measures || {}).note} onChange={setHowSub('measures', 'note')} area />
-
-        <div className="toggle-row">
-          <div>
-            <div className="t">Demo section</div>
-            <div className="d">The 5-minute demo script with the scan-to-try QR code.</div>
-          </div>
-          <button className={`switch${(how.demo || {}).show !== false ? ' on' : ''}`}
-            onClick={() => patchPath('content', ['how', 'demo', 'show'], (how.demo || {}).show === false)}
-            aria-label="Toggle demo section" />
-        </div>
-        {(how.demo || {}).show !== false && (
-          <>
-            <div className="form-grid">
-              <TextRow label="Kicker" value={(how.demo || {}).kicker} onChange={setHowSub('demo', 'kicker')} />
-              <TextRow label="Heading" value={(how.demo || {}).heading} onChange={setHowSub('demo', 'heading')} />
-              <TextRow label="Scan label" value={(how.demo || {}).scanLabel} onChange={setHowSub('demo', 'scanLabel')} />
-              <TextRow label="Guest form CTA" value={(how.demo || {}).formCta} onChange={setHowSub('demo', 'formCta')} />
-              <TextRow label="Admin CTA" value={(how.demo || {}).adminCta} onChange={setHowSub('demo', 'adminCta')} />
-            </div>
-            <ListEditor items={(how.demo || {}).steps} addLabel="+ Add step"
-              fields={[{ key: 'title', label: 'Step' }, { key: 'desc', label: 'Detail', area: true }]}
-              onChange={v => patchPath('content', ['how', 'demo', 'steps'], v)} />
-          </>
-        )}
-
-        <div className="field-label">Pilot plan</div>
-        <div className="form-grid">
-          <TextRow label="Kicker" value={(how.pilot || {}).kicker} onChange={setHowSub('pilot', 'kicker')} />
-          <TextRow label="Heading" value={(how.pilot || {}).heading} onChange={setHowSub('pilot', 'heading')} />
-        </div>
-        <ListEditor items={(how.pilot || {}).phases} addLabel="+ Add phase"
-          fields={[{ key: 'phase', label: 'Week 0', narrow: true }, { key: 'title', label: 'Title' }, { key: 'who', label: 'Who' }, { key: 'body', label: 'Body', area: true }]}
-          onChange={v => patchPath('content', ['how', 'pilot', 'phases'], v)} />
-        <TextRow label="Pilot note" value={(how.pilot || {}).note} onChange={setHowSub('pilot', 'note')} area />
-
-        <div className="field-label">Ownership footer</div>
-        <div className="form-grid">
-          <TextRow label="Kicker" value={(how.ownership || {}).kicker} onChange={setHowSub('ownership', 'kicker')} />
-        </div>
-        <TextRow label="Note" value={(how.ownership || {}).note} onChange={setHowSub('ownership', 'note')} area />
       </Section>
     </>
   );
