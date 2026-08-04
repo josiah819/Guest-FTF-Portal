@@ -54,7 +54,7 @@ const DEFAULT_SETTINGS = {
     csvExport: true,
     qrGenerator: true,
     visitTracking: true,      // count guest-form opens (by location + source) for the dashboard
-    ftfForward: false,        // POST each submission to the FTF webhook below
+    rapForward: true,         // queue each note for the central RAP intake API (delivers once RAP_INGEST_KEY is set)
     emailForward: false,      // notify integrations.notifyEmail per submission (needs SMTP env)
   },
   sla: {
@@ -78,7 +78,7 @@ const DEFAULT_SETTINGS = {
     openaiBaseUrl: '',                // e.g. http://10.0.12.50:11434 (Ollama — /v1 appended automatically)
     openaiModel: '',                  // e.g. qwen3:4b
   },
-  integrations: { ftfWebhookUrl: '', notifyEmail: '' },
+  integrations: { notifyEmail: '' },
   // Who owns what — shown on the dashboard SLA card and the Runbook page,
   // so "who monitors this?" always has a written answer.
   accountability: {
@@ -401,17 +401,34 @@ async function migrateAndSeed() {
     if (!settingsRows.length) {
       await client.query('INSERT INTO app_settings (id, data) VALUES (1, $1)',
         [JSON.stringify(DEFAULT_SETTINGS)]);
-    } else if (!settingsRows[0].data.migratedSimpleForm) {
-      // One-time v2 flip for existing installs: the guest form drops to
-      // message + name + photo and the AI infers type/urgency/category.
-      // Everything stays re-enableable in Settings → Form fields.
+    } else {
       const data = settingsRows[0].data;
-      data.fields = { ...(data.fields || {}), location: 'optional', urgency: 'off', email: 'off', phone: 'off', group: 'off', category: 'off' };
-      data.features = { ...(data.features || {}), submissionTypes: false };
-      data.migratedSimpleForm = true;
-      await client.query('UPDATE app_settings SET data = $1, updated_at = now() WHERE id = 1',
-        [JSON.stringify(data)]);
-      console.log('[migrate] one-time guest-form simplification applied');
+      let dirty = false;
+      if (!data.migratedSimpleForm) {
+        // One-time v2 flip for existing installs: the guest form drops to
+        // message + name + photo and the AI infers type/urgency/category.
+        // Everything stays re-enableable in Settings → Form fields.
+        data.fields = { ...(data.fields || {}), location: 'optional', urgency: 'off', email: 'off', phone: 'off', group: 'off', category: 'off' };
+        data.features = { ...(data.features || {}), submissionTypes: false };
+        data.migratedSimpleForm = true;
+        dirty = true;
+        console.log('[migrate] one-time guest-form simplification applied');
+      }
+      // The FTF webhook placeholder became the real RAP hand-off (rap.js, env
+      // config) — drop its dead settings keys from installs that predate it.
+      if (data.features && 'ftfForward' in data.features) {
+        delete data.features.ftfForward;
+        dirty = true;
+      }
+      if (data.integrations && 'ftfWebhookUrl' in data.integrations) {
+        delete data.integrations.ftfWebhookUrl;
+        dirty = true;
+        console.log('[migrate] retired the FTF webhook settings (replaced by the RAP hand-off)');
+      }
+      if (dirty) {
+        await client.query('UPDATE app_settings SET data = $1, updated_at = now() WHERE id = 1',
+          [JSON.stringify(data)]);
+      }
     }
 
     // Roles: seed the starter set once, then keep Administrator topped up with

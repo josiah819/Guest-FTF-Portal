@@ -196,3 +196,26 @@ CREATE TABLE IF NOT EXISTS visits (
 
 CREATE INDEX IF NOT EXISTS idx_visits_created ON visits (created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_visits_loc     ON visits (location_id, created_at);
+
+-- RAP hand-off queue (rap.js): one row per submission awaiting delivery to the
+-- central Report-A-Problem intake API. Rows are written at capture time and
+-- drained by a background sender with retry/backoff, so notes survive crashes,
+-- restarts and RAP downtime. payload is the exact JSON that gets POSTed
+-- (text + submitted_at + extras) — built once so retries stay byte-identical.
+CREATE TABLE IF NOT EXISTS rap_queue (
+  id                SERIAL PRIMARY KEY,
+  submission_id     INTEGER NOT NULL UNIQUE REFERENCES submissions(id) ON DELETE CASCADE,
+  payload           JSONB NOT NULL,
+  status            TEXT NOT NULL DEFAULT 'pending',  -- pending | sent | failed (failed = RAP 400-rejected)
+  attempts          INTEGER NOT NULL DEFAULT 0,
+  next_attempt_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+  last_status       INTEGER,                          -- last HTTP status; NULL = network error/timeout
+  last_error        TEXT NOT NULL DEFAULT '',
+  rap_submission_id BIGINT,                           -- RAP's ids from the 201, for cross-referencing
+  rap_ticket_id     BIGINT,
+  sent_at           TIMESTAMPTZ,
+  updated_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
+  created_at        TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_rap_queue_due ON rap_queue (next_attempt_at) WHERE status = 'pending';

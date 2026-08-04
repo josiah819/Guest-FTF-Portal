@@ -61,6 +61,7 @@ export const api = {
   deleteRole: (id) => request(`/api/admin/roles/${id}`, { method: 'DELETE', auth: true }),
   settings: () => request('/api/admin/settings', { auth: true }),
   saveSettings: (patch) => request('/api/admin/settings', { method: 'PUT', body: patch, auth: true }),
+  rapStatus: () => request('/api/admin/rap/status', { auth: true }),
   uploadLogo: (slot, file) => {
     const fd = new FormData();
     fd.append('slot', slot);

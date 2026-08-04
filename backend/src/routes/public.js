@@ -7,6 +7,7 @@ const { aw, clampStr, newPublicCode, newFileName, rateLimit } = require('../util
 const { classifySubmission } = require('../classify');
 const { routeSubmission } = require('../routing');
 const { forwardSubmission } = require('../forward');
+const { enqueueRap } = require('../rap');
 
 const router = express.Router();
 
@@ -138,7 +139,7 @@ router.post('/submissions', rateLimit({ windowMs: 5 * 60 * 1000, max: 12 }), upl
       (public_code, type, category_id, department_id, location_id, location_text, message,
        urgency, guest_name, guest_email, guest_phone, group_name, photo_path, source)
      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
-     RETURNING id`,
+     RETURNING id, created_at`,
     [code, type, category?.id || null, category?.department_id || null,
      location?.id || null, location?.name || '', message, urgency,
      guestName, guestEmail, guestPhone, groupName, photoPath, source]);
@@ -147,6 +148,13 @@ router.post('/submissions', rateLimit({ windowMs: 5 * 60 * 1000, max: 12 }), upl
   await pool.query(
     `INSERT INTO submission_events (submission_id, kind, detail, is_public)
      VALUES ($1,'created','Submission received',true)`, [id]);
+
+  // Queue the raw note for the central RAP intake at capture time — RAP runs
+  // its own triage, so this doesn't wait on ours. Never blocks the guest.
+  await enqueueRap(settings, {
+    submissionId: id, text: message, submittedAt: rows[0].created_at,
+    code, location: location?.name || '', channel: source,
+  });
 
   // Async pipeline: triage → hours-aware routing → forwarding. The guest never
   // waits on any of it; routing runs even with AI triage off so the SLA clock

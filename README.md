@@ -20,7 +20,7 @@ Built to match the vision in Cindy's email:
 | --- | --- |
 | QR codes in cabins & common areas | **Admin → Locations & QR** — print-ready QR cards per location (with fallback URL printed under each code), form pre-fills the location |
 | AI categorizes submissions | Claude triages every submission (category, urgency, one-line summary); keyword fallback without an API key |
-| Route to departments / FTF | Category → department routing, plus an **FTF webhook** that POSTs each submission as JSON to your intake endpoint |
+| Route to departments / FTF | Category → department routing, plus the **RAP hand-off** — every note is queued and its raw text delivered to the central Report-A-Problem intake API (bearer key, automatic retry) |
 | Visibility into issues, trends, response times | Dashboard: volume, categories, locations, CSAT, avg first-response & resolution, SLA watch, hotspots, AI insights |
 | "Is anyone actually scanning the QR codes?" | **Visit tracking** — every guest-form open is counted (by location + QR/kiosk/web source, no cookies or personal data); the dashboard shows visits over time, arrival sources, and per-location scans vs. notes sent, flagging cards with zero scans |
 | "Start small, test the wording" | Every guest-facing string, every field requirement and every feature is editable/toggleable in **Admin → Settings** |
@@ -77,10 +77,44 @@ Pick the engine in **Settings → AI** (test button included):
 
 Triage decides **type** (issue/request/feedback/compliment), **category → department**, **urgency** (`low / normal / high / safety`) and a one-line staff summary. Guest choices (if the pickers are re-enabled) are never overridden. Everything runs async after the guest's submit — the form is never slowed by a model. Dashboard insights use the same provider.
 
+## RAP hand-off (central intake)
+
+WoodsVoice is the guest-facing **intake half** of RAP (“Report A Problem”), Muskoka
+Woods’ central ticketing system. Every new guest note is queued and its **raw text**
+delivered to the RAP intake API, where RAP’s own AI extracts cabin/department/severity
+and staff work the ticket. WoodsVoice keeps its full local copy either way.
+
+- **Configure:** put the bearer key the RAP operator gives you in `.env` as
+  `RAP_INGEST_KEY` (env only — never in the database, logs, or any browser; all
+  posting happens from the backend). The feature toggle lives in **Settings →
+  Features → RAP hand-off** (on by default) with a live delivery/queue readout.
+- **Reliable by design:** notes land in the `rap_queue` table at capture time and a
+  background sender delivers them (batches ≤5 per 15 s, under RAP’s 30 req/min limit).
+  Failures follow the intake contract: 429 pauses the sender ≥60 s; 503 and network
+  errors retry with exponential backoff (30 s → 15 min) carrying the **original**
+  `submitted_at`, and duplicates can’t happen (RAP’s insert is transactional — retries
+  only fire when nothing was stored); 400 parks the item as `failed`; 401 or any other
+  4xx **halts** the sender until the key/URL is fixed and the backend restarts — queued
+  notes are never lost, including across crashes and reboots.
+- **Payload:** `{ text, submitted_at }` per contract v2, plus harmless extra fields RAP
+  preserves but never relies on (`source: "woodsvoice"`, our `MW-XXXXXX` code, QR
+  location, channel). The guest’s text goes verbatim, capped at RAP’s 4 000-char limit
+  (the form’s textarea has the same cap). Without a key, notes queue until one is set.
+- **Smoke test** (prefix with `INTAKE-TEST:` so the RAP operator can spot and delete it):
+
+```bash
+curl -sS -X POST https://rap.mwprogram.com/api/ingest \
+  -H "Authorization: Bearer $RAP_INGEST_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"text": "INTAKE-TEST: hello from WoodsVoice", "submitted_at": "2026-08-04T12:00:00Z"}'
+```
+
+Demo-seed submissions never enter the queue — only real guest submissions are forwarded.
+
 ## Admin controls (Settings)
 
 - **Form fields** — every field (location, category picker, urgency, photo, name, email, phone, group) is `Off / Optional / Required`. Message is always required; the v2 default form is just message + name + photo.
-- **Features** — AI triage, AI insights, submission types, photo upload, urgency handling, tracking codes, CSAT ratings, kiosk mode, hotspot detection, SLA targets (global + per-urgency + warn-%), CSV export, QR generator, FTF webhook, email notifications.
+- **Features** — AI triage, AI insights, submission types, photo upload, urgency handling, tracking codes, CSAT ratings, kiosk mode, hotspot detection, SLA targets (global + per-urgency + warn-%), CSV export, QR generator, RAP hand-off, email notifications.
 - **AI** — provider picker + models + test connection.
 - **Content** — all guest-facing wording: form microcopy, tracking page, type/urgency/status labels, the whole `/how` page (journey, measures, demo script, pilot plan as editable lists), logos and brand colours.
 - **Categories & Departments** — fully editable; each category routes to a department. Departments carry **hours, after-hours policy, fallback chain, on-call person and SLA overrides** (🕐 Hours on each row).
@@ -98,7 +132,8 @@ woodsvoice/
 │       ├── db.js           # pool, schema apply, default settings, demo seed
 │       ├── classify.js     # Claude triage + keyword fallback, AI insights
 │       ├── metrics.js      # dashboard aggregations
-│       ├── forward.js      # FTF webhook + email notification log
+│       ├── rap.js          # RAP hand-off: durable queue + retrying sender
+│       ├── forward.js      # per-submission email notification
 │       └── routes/         # public.js (guest), admin.js (authed)
 └── frontend/               # React 18 + Vite, served by nginx (proxies /api)
     └── src/
@@ -114,6 +149,7 @@ woodsvoice/
 ## Notes for production
 
 - Set real values for `POSTGRES_PASSWORD`, `JWT_SECRET`, `ADMIN_PASSWORD` and put the app behind HTTPS (any reverse proxy).
+- Set `RAP_INGEST_KEY` (from the RAP operator) so guest notes reach the central Report-A-Problem system — see **RAP hand-off** above. Until then they queue locally and the Settings page says so.
 - Guest photo URLs are unguessable random filenames but served without auth — fine for an internal tool, add an auth proxy if photos may be sensitive.
 - Email needs `SMTP_HOST` (+ optional auth) in `.env`; until then every notification is logged on the submission timeline instead of sent.
 - Upgrading an existing install is automatic: schema migrations are guarded and run on boot (the old `admins` table becomes `users` with the Administrator role), and a one-time settings migration simplifies the guest form (re-enable anything under Settings → Form fields).

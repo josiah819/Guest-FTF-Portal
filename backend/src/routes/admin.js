@@ -8,6 +8,7 @@ const { attachActor, requirePerm, deptFilter, inDeptScope } = require('../rbac')
 const { dashboardMetrics, insightsInput } = require('../metrics');
 const { generateInsights, testClassify, aiEnabled } = require('../classify');
 const { recomputeDueDates } = require('../routing');
+const { rapStatus } = require('../rap');
 
 const router = express.Router();
 
@@ -55,6 +56,13 @@ router.put('/settings', aw(async (req, res) => {
     return res.status(403).json({ error: 'You don’t have permission to change settings.' });
   }
   res.json({ settings: await saveSettings(patch) });
+}));
+
+// Delivery status of the RAP hand-off queue, for the Settings → Features
+// readout. Never exposes the key — just whether one is configured.
+router.get('/rap/status', aw(async (req, res) => {
+  const settings = await getSettings();
+  res.json({ enabled: settings.features.rapForward !== false, ...(await rapStatus()) });
 }));
 
 // Try the chosen (possibly unsaved) AI provider against a canned message.

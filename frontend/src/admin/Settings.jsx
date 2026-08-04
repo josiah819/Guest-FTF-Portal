@@ -31,7 +31,7 @@ const FEATURE_DEFS = [
   { key: 'csvExport', label: 'CSV export', desc: 'Download everything for deeper analysis in Excel or Power BI.' },
   { key: 'qrGenerator', label: 'QR code generator', desc: 'Print-ready QR cards per location on the Locations & QR page.' },
   { key: 'visitTracking', label: 'Visit tracking', desc: 'Counts guest-form opens by location and source (QR / kiosk / web) so the dashboard shows whether the QR cards are actually being scanned. No cookies, nothing personal stored.' },
-  { key: 'ftfForward', label: 'FTF hand-off (webhook)', desc: 'POST every new submission as JSON to your FTF intake endpoint so requests land in the existing workflow.', extra: 'ftf' },
+  { key: 'rapForward', label: 'RAP hand-off (central intake)', desc: 'Queue every new note and deliver its raw text to the central Report-A-Problem system, which runs its own triage and ticketing. Needs RAP_INGEST_KEY on the server (.env); delivery retries automatically until it lands.', extra: 'rap' },
   { key: 'emailForward', label: 'Email notifications', desc: 'Email the address below for every new submission. Needs SMTP configured on the server (see .env); without it, notifications are logged on the timeline instead.', extra: 'email' },
 ];
 
@@ -296,11 +296,13 @@ export default function Settings() {
   const [toast, setToast] = useState('');
 
   const [assignees, setAssignees] = useState([]);
+  const [rap, setRap] = useState(null);
 
   useEffect(() => {
     api.settings().then(d => { setS(d.settings); setAiKey(d.aiKeyPresent); });
     api.catalog('departments').then(d => setDepartments(d.rows));
     api.assignees().then(d => setAssignees(d.rows)).catch(() => {});
+    api.rapStatus().then(setRap).catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -461,10 +463,19 @@ export default function Settings() {
                     })}
                   </div>
                 )}
-                {f.extra === 'ftf' && s.features.ftfForward && (
-                  <input className="input" style={{ marginTop: 10 }} placeholder="https://ftf.muskokawoods.com/api/intake"
-                    value={s.integrations.ftfWebhookUrl}
-                    onChange={e => patch('integrations', 'ftfWebhookUrl', e.target.value)} />
+                {f.extra === 'rap' && s.features.rapForward !== false && (
+                  <div className="hint" style={{ marginTop: 10 }}>
+                    {!rap ? 'Checking delivery status…' : <>
+                      {rap.keyConfigured
+                        ? <>Key configured ✓ · delivers to {rap.endpoint}</>
+                        : <>RAP_INGEST_KEY isn’t set on the server — notes are queueing and will deliver once it’s configured (see .env).</>}
+                      <br />
+                      Queue: {rap.counts.pending} waiting · {rap.counts.sent} delivered · {rap.counts.failed} rejected
+                      {rap.lastSentAt && <> · last delivered {new Date(rap.lastSentAt).toLocaleString()}</>}
+                      {rap.halted && <><br /><b style={{ color: 'var(--orange)' }}>Delivery halted ({rap.halted}) — fix RAP_INGEST_KEY and restart the backend; queued notes are safe.</b></>}
+                      {!rap.halted && rap.lastError && <><br />Last error: {rap.lastError}</>}
+                    </>}
+                  </div>
                 )}
                 {f.extra === 'email' && s.features.emailForward && (
                   <input className="input" style={{ marginTop: 10 }} placeholder="guestcare@muskokawoods.com"
