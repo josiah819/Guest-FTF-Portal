@@ -350,7 +350,8 @@ async function ensureUniqueSlug(table, base) {
 
 // Lists stay readable by any signed-in user (the inbox filters and settings
 // pages need them); mutations require catalogs.manage.
-function catalogRoutes(table, { mapIn, orderBy, hasSlug }) {
+// DELETE deactivates unless the table opts into a real `remove`.
+function catalogRoutes(table, { mapIn, orderBy, hasSlug, remove }) {
   const canEdit = requirePerm('catalogs.manage');
   router.get(`/${table}`, aw(async (req, res) => {
     const { rows } = await pool.query(`SELECT * FROM ${table} ORDER BY ${orderBy}`);
@@ -377,7 +378,9 @@ function catalogRoutes(table, { mapIn, orderBy, hasSlug }) {
     res.json({ row: rows[0] });
   }));
   router.delete(`/${table}/:id`, canEdit, aw(async (req, res) => {
-    await pool.query(`UPDATE ${table} SET active = false WHERE id = $1`, [parseInt(req.params.id, 10)]);
+    const id = parseInt(req.params.id, 10);
+    if (remove) await remove(id);
+    else await pool.query(`UPDATE ${table} SET active = false WHERE id = $1`, [id]);
     res.json({ ok: true });
   }));
 }
@@ -474,6 +477,17 @@ catalogRoutes('locations', {
     active: typeof b.active === 'boolean' ? b.active : (partial ? undefined : true),
     sort: b.sort !== undefined ? parseInt(b.sort, 10) || 0 : (partial ? undefined : 99),
   }),
+  // Locations really delete (deactivate already covers "hide but keep").
+  // History stays readable: location_text (stamped at capture) and
+  // visits.loc_slug survive, and the FKs null out. Backfill location_text
+  // for rows from installs that predate the capture-time stamp, then drop.
+  remove: async (id) => {
+    await pool.query(
+      `UPDATE submissions SET location_text = l.name
+         FROM locations l
+        WHERE l.id = $1 AND submissions.location_id = l.id AND submissions.location_text = ''`, [id]);
+    await pool.query('DELETE FROM locations WHERE id = $1', [id]);
+  },
 });
 
 catalogRoutes('departments', {
