@@ -125,6 +125,18 @@ const DEFAULT_SETTINGS = {
       sendRatingLabel: 'Send rating',
       newSubmissionLabel: '← New submission',
     },
+    // The printable QR sheet (Locations & QR codes → Sign editor). Newlines in
+    // title/subtitle are real line breaks on the sign.
+    sign: {
+      title: 'Report a\nProblem',
+      subtitle: 'Anything wrong with your space?\nTell us and we’ll fix it.',
+      scanLine: 'Scan to report it.',
+      easyLine: 'No app. No sign-in. No name needed.',
+      note: 'This code is fixed to this space',
+      showUrl: true,       // append each location’s /?loc= link to the fine print
+      qrShape: 'dots',     // dots | squares
+      qrCard: false,       // true = forest-on-white card (safest for older scanner apps)
+    },
     labels: {
       types: {
         issue: '⚠️ Something’s wrong',

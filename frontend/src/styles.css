@@ -940,6 +940,7 @@ textarea.input { min-height: 110px; resize: vertical; }
   line-height: 0.95;
   letter-spacing: -0.015em;
   text-transform: uppercase;
+  white-space: pre-line;            /* editor newlines are real line breaks */
 }
 .sign__sub {
   margin-top: 13pt;
@@ -947,9 +948,19 @@ textarea.input { min-height: 110px; resize: vertical; }
   font-weight: 300;
   line-height: 1.38;
   color: rgba(255, 255, 255, 0.9);
+  white-space: pre-line;
 }
 /* margins double as the code's quiet zone — keep ≥ 4 modules (~24pt) clear */
 .sign__qr { width: 210pt; height: 210pt; margin: 28pt 0; }
+.sign__qr canvas { display: block; width: 100%; height: 100%; }
+/* dark-on-white variant: the card carries the quiet zone (22pt ≈ 4 modules) */
+.sign__qr--card {
+  width: 244pt; height: 244pt;
+  margin: 16pt 0;
+  padding: 22pt;
+  background: #FFFFFF;
+  border-radius: 12pt;
+}
 .sign__scan { font-size: 17pt; font-weight: 700; }
 .sign__easy { margin-top: 4pt; font-size: 17pt; font-weight: 300; color: rgba(255, 255, 255, 0.85); }
 .sign__rule { width: 54pt; height: 2pt; margin-top: 22pt; background: var(--green); }
@@ -964,6 +975,7 @@ textarea.input { min-height: 110px; resize: vertical; }
 }
 .sign__note {
   margin-top: auto;
+  padding-top: 10pt;                /* breathing room even when the page runs tight */
   font-size: 9.5pt;
   font-weight: 300;
   letter-spacing: 0.02em;

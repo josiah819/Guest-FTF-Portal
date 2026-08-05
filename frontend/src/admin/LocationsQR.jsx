@@ -1,6 +1,20 @@
 import React, { useEffect, useRef, useState } from 'react';
 import QRCode from 'qrcode';
 import { api } from '../api';
+import { useActor } from './AdminApp';
+
+// Mirrors DEFAULT_SETTINGS.content.sign in backend/src/db.js — the fallback
+// while settings load and the target of "Reset to default".
+const SIGN_DEFAULTS = {
+  title: 'Report a\nProblem',
+  subtitle: 'Anything wrong with your space?\nTell us and we’ll fix it.',
+  scanLine: 'Scan to report it.',
+  easyLine: 'No app. No sign-in. No name needed.',
+  note: 'This code is fixed to this space',
+  showUrl: true,
+  qrShape: 'dots',
+  qrCard: false,
+};
 
 // arcTo rather than the newer roundRect — a staff machine with an older
 // browser should still get a printable code, not a blank canvas.
@@ -13,33 +27,38 @@ function roundRectPath(ctx, x, y, w, h, r) {
   ctx.closePath();
 }
 
-// White code straight on the forest background: round dots for data, rounded
-// rings for the three eyes. Error-correction Q buys back what the styling and
-// the light-on-dark inversion cost a scanner.
-function SignQR({ url }) {
+// The code itself, drawn from the module matrix so the styling is ours:
+// round dots or classic squares, in whatever colour the sign calls for.
+// Error-correction Q buys back what the styling costs a scanner.
+function SignQR({ url, shape, color }) {
   const ref = useRef(null);
   useEffect(() => {
     const canvas = ref.current;
     if (!canvas) return;
     const { modules } = QRCode.create(url, { errorCorrectionLevel: 'Q' });
     const n = modules.size;
-    const px = 1240;                 // ~425 dpi at the printed 2.9in
+    const px = 1240;                 // ~425 dpi at the printed size
     const cell = px / n;
     const ctx = canvas.getContext('2d');
     canvas.width = px;
     canvas.height = px;
     ctx.clearRect(0, 0, px, px);
-    ctx.fillStyle = '#FFFFFF';
+    ctx.fillStyle = color;
+    const dots = shape !== 'squares';
 
     const inEye = (r, c) => (r < 7 && c < 7) || (r < 7 && c >= n - 7) || (r >= n - 7 && c < 7);
     ctx.beginPath();
     for (let r = 0; r < n; r++) {
       for (let c = 0; c < n; c++) {
         if (!modules.data[r * n + c] || inEye(r, c)) continue;
-        const cx = (c + 0.5) * cell;
-        const cy = (r + 0.5) * cell;
-        ctx.moveTo(cx + cell * 0.48, cy);
-        ctx.arc(cx, cy, cell * 0.48, 0, Math.PI * 2);
+        if (dots) {
+          const cx = (c + 0.5) * cell;
+          const cy = (r + 0.5) * cell;
+          ctx.moveTo(cx + cell * 0.48, cy);
+          ctx.arc(cx, cy, cell * 0.48, 0, Math.PI * 2);
+        } else {
+          ctx.rect(c * cell, r * cell, cell, cell);
+        }
       }
     }
     ctx.fill();
@@ -49,41 +68,119 @@ function SignQR({ url }) {
       const y = r0 * cell;
       const s = 7 * cell;
       ctx.beginPath();
-      roundRectPath(ctx, x, y, s, s, cell * 1.9);
-      roundRectPath(ctx, x + cell, y + cell, s - 2 * cell, s - 2 * cell, cell * 1.2);
+      roundRectPath(ctx, x, y, s, s, dots ? cell * 1.9 : 0);
+      roundRectPath(ctx, x + cell, y + cell, s - 2 * cell, s - 2 * cell, dots ? cell * 1.2 : 0);
       ctx.fill('evenodd');
       ctx.beginPath();
-      roundRectPath(ctx, x + 2 * cell, y + 2 * cell, 3 * cell, 3 * cell, cell * 0.85);
+      roundRectPath(ctx, x + 2 * cell, y + 2 * cell, 3 * cell, 3 * cell, dots ? cell * 0.85 : 0);
       ctx.fill();
     }
-  }, [url]);
-  return <canvas className="sign__qr" ref={ref} />;
+  }, [url, shape, color]);
+  return <canvas ref={ref} />;
 }
 
-// One printed Letter page per location — the “Report a Problem” sign, flat:
-// no white plates, everything reversed out of the forest green.
-function Sign({ row, origin }) {
+// One printed Letter page per location. Exported so a headless harness can
+// render the real thing for print/scan checks.
+export function Sign({ row, origin, cfg }) {
   const host = origin.replace(/^https?:\/\//, '');
   return (
     <div className="sign">
       <img className="sign__logo" src="/brand/mw-logo-white.png" alt="Muskoka Woods — est. 1979" />
-      <h2 className="sign__title">Report a<br />Problem</h2>
-      <p className="sign__sub">Anything wrong with your space?<br />Tell us and we’ll fix it.</p>
-      <SignQR url={`${origin}/?loc=${row.slug}`} />
-      <p className="sign__scan">Scan to report it.</p>
-      <p className="sign__easy">No app. No sign-in. No name needed.</p>
+      {cfg.title ? <h2 className="sign__title">{cfg.title}</h2> : null}
+      {cfg.subtitle ? <p className="sign__sub">{cfg.subtitle}</p> : null}
+      <div className={`sign__qr${cfg.qrCard ? ' sign__qr--card' : ''}`}>
+        <SignQR url={`${origin}/?loc=${row.slug}`} shape={cfg.qrShape} color={cfg.qrCard ? '#006134' : '#FFFFFF'} />
+      </div>
+      {cfg.scanLine ? <p className="sign__scan">{cfg.scanLine}</p> : null}
+      {cfg.easyLine ? <p className="sign__easy">{cfg.easyLine}</p> : null}
       <span className="sign__rule" aria-hidden="true" />
       <div className="sign__loc">{row.name}</div>
-      <p className="sign__note">This code is fixed to this space · {host}/?loc={row.slug}</p>
+      <p className="sign__note">{cfg.note}{cfg.showUrl ? `${cfg.note ? ' · ' : ''}${host}/?loc=${row.slug}` : ''}</p>
       <span className="sign__tree sign__tree--left" aria-hidden="true" />
       <span className="sign__tree sign__tree--right" aria-hidden="true" />
     </div>
   );
 }
 
+function SignEditor({ sign, setField, dirty, saving, onSave, onReset }) {
+  return (
+    <div className="card no-print" style={{ marginBottom: 16 }}>
+      <h3>Sign editor</h3>
+      <p className="hint">
+        Edits preview below as you type — Save keeps them for everyone. Printing always uses what you
+        see, saved or not. Location names come from the list above.
+      </p>
+      {/* everything locks while a save is in flight — an edit that slips in
+          mid-request would be marked saved without ever being sent */}
+      <div className="form-grid">
+        <div className="form-col">
+          <label>Headline</label>
+          <textarea className="input" style={{ minHeight: 64 }} value={sign.title} disabled={saving}
+            onChange={e => setField('title', e.target.value)} />
+        </div>
+        <div className="form-col">
+          <label>Subtitle</label>
+          <textarea className="input" style={{ minHeight: 64 }} value={sign.subtitle} disabled={saving}
+            onChange={e => setField('subtitle', e.target.value)} />
+        </div>
+        <div className="form-col">
+          <label>Scan prompt</label>
+          <input className="input" value={sign.scanLine} disabled={saving}
+            onChange={e => setField('scanLine', e.target.value)} />
+        </div>
+        <div className="form-col">
+          <label>Reassurance line</label>
+          <input className="input" value={sign.easyLine} disabled={saving}
+            onChange={e => setField('easyLine', e.target.value)} />
+        </div>
+        <div className="form-col">
+          <label>Fine print</label>
+          <input className="input" value={sign.note} disabled={saving}
+            onChange={e => setField('note', e.target.value)} />
+        </div>
+        <div className="form-col">
+          <label>Code style</label>
+          <select className="input" value={sign.qrShape} disabled={saving}
+            onChange={e => setField('qrShape', e.target.value)}>
+            <option value="dots">Rounded dots</option>
+            <option value="squares">Classic squares</option>
+          </select>
+        </div>
+      </div>
+      <div className="toggle-row" style={{ marginTop: 4 }}>
+        <div>
+          <div className="t">Code on a white card</div>
+          <div className="d">Prints the code dark-on-white — the safest bet for older phones and scanner apps.</div>
+        </div>
+        <button className={`switch${sign.qrCard ? ' on' : ''}`} aria-label="Toggle white card" disabled={saving}
+          onClick={() => setField('qrCard', !sign.qrCard)} />
+      </div>
+      <div className="toggle-row">
+        <div>
+          <div className="t">Show the web address</div>
+          <div className="d">Adds each location’s link to the fine print, for guests whose camera won’t cooperate.</div>
+        </div>
+        <button className={`switch${sign.showUrl ? ' on' : ''}`} aria-label="Toggle web address" disabled={saving}
+          onClick={() => setField('showUrl', !sign.showUrl)} />
+      </div>
+      <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginTop: 14 }}>
+        <button className="btn btn-teal btn-small" onClick={onSave} disabled={saving || !dirty}>
+          {saving ? 'Saving…' : 'Save sign'}
+        </button>
+        <button className="btn btn-ghost btn-small" onClick={onReset} disabled={saving}>Reset to default</button>
+        {dirty && <span className="muted">Unsaved changes</span>}
+      </div>
+    </div>
+  );
+}
+
 export default function LocationsQR() {
+  const actor = useActor();
   const [rows, setRows] = useState(null);
   const [settings, setSettings] = useState(null);
+  const [sign, setSignState] = useState(null);
+  const [signDirty, setSignDirty] = useState(false);
+  const [signSaving, setSignSaving] = useState(false);
   const [newName, setNewName] = useState('');
   const [newArea, setNewArea] = useState('Cabins');
   const [showInactive, setShowInactive] = useState(false);
@@ -92,7 +189,12 @@ export default function LocationsQR() {
   const load = () => api.catalog('locations').then(d => setRows(d.rows));
   useEffect(() => {
     load();
-    api.settings().then(d => setSettings(d.settings));
+    api.settings()
+      .then(d => {
+        setSettings(d.settings);
+        setSignState({ ...SIGN_DEFAULTS, ...(d.settings.content?.sign || {}) });
+      })
+      .catch(() => setSignState({ ...SIGN_DEFAULTS }));
   }, []);
 
   function flash(msg) {
@@ -125,12 +227,31 @@ export default function LocationsQR() {
     }
   }
 
+  function setSignField(key, value) {
+    setSignState(s => ({ ...s, [key]: value }));
+    setSignDirty(true);
+  }
+
+  async function saveSign() {
+    setSignSaving(true);
+    try {
+      await api.saveSettings({ content: { sign } });
+      setSignDirty(false);
+      flash('Sign saved');
+    } catch (err) {
+      flash(err.message);
+    } finally {
+      setSignSaving(false);
+    }
+  }
+
   if (!rows) return <div className="center-pad"><span className="spinner" /></div>;
 
   const visible = rows.filter(r => showInactive || r.active);
   const areas = [...new Set(rows.map(r => r.area))];
   const qrEnabled = settings?.features?.qrGenerator !== false;
   const origin = window.location.origin;
+  const cfg = sign || SIGN_DEFAULTS;
 
   return (
     <>
@@ -177,6 +298,10 @@ export default function LocationsQR() {
 
       {qrEnabled ? (
         <>
+          {actor.can('content.manage') && sign && (
+            <SignEditor sign={sign} setField={setSignField} dirty={signDirty} saving={signSaving}
+              onSave={saveSign} onReset={() => { setSignState({ ...SIGN_DEFAULTS }); setSignDirty(true); }} />
+          )}
           <div className="card no-print" style={{ marginBottom: 16, background: 'var(--teal-mist)', borderColor: 'var(--line-teal)' }}>
             <h3>How to use these</h3>
             <p style={{ margin: 0, fontSize: 14 }}>
@@ -189,7 +314,7 @@ export default function LocationsQR() {
           <div className="sign-sheet">
             {rows.filter(r => r.active).map(r => (
               <div className="sign-wrap" key={r.id}>
-                <Sign row={r} origin={origin} />
+                <Sign row={r} origin={origin} cfg={cfg} />
                 {/* preview=1 keeps staff clicks out of the visit stats */}
                 <a className="sign-preview no-print" href={`/?loc=${r.slug}&preview=1`} target="_blank" rel="noreferrer">Preview what guests see ↗</a>
               </div>
