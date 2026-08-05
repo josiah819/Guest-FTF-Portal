@@ -2,24 +2,66 @@ import React, { useEffect, useRef, useState } from 'react';
 import QRCode from 'qrcode';
 import { api } from '../api';
 
-function QRCanvas({ url }) {
-  const ref = useRef(null);
-  useEffect(() => {
-    if (ref.current) {
-      // Big bitmap so the ~2.8in printed code stays crisp (~300 dpi); the
-      // white plate around it supplies the quiet zone.
-      QRCode.toCanvas(ref.current, url, {
-        width: 840,
-        margin: 0,
-        color: { dark: '#006134', light: '#FFFFFF' },
-      });
-    }
-  }, [url]);
-  return <canvas ref={ref} />;
+// arcTo rather than the newer roundRect — a staff machine with an older
+// browser should still get a printable code, not a blank canvas.
+function roundRectPath(ctx, x, y, w, h, r) {
+  ctx.moveTo(x + r, y);
+  ctx.arcTo(x + w, y, x + w, y + h, r);
+  ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r);
+  ctx.arcTo(x, y, x + w, y, r);
+  ctx.closePath();
 }
 
-// One printed Letter page per location, matching the official
-// “Report a Problem” sign design (geometry lifted from the print PDF).
+// White code straight on the forest background: round dots for data, rounded
+// rings for the three eyes. Error-correction Q buys back what the styling and
+// the light-on-dark inversion cost a scanner.
+function SignQR({ url }) {
+  const ref = useRef(null);
+  useEffect(() => {
+    const canvas = ref.current;
+    if (!canvas) return;
+    const { modules } = QRCode.create(url, { errorCorrectionLevel: 'Q' });
+    const n = modules.size;
+    const px = 1240;                 // ~425 dpi at the printed 2.9in
+    const cell = px / n;
+    const ctx = canvas.getContext('2d');
+    canvas.width = px;
+    canvas.height = px;
+    ctx.clearRect(0, 0, px, px);
+    ctx.fillStyle = '#FFFFFF';
+
+    const inEye = (r, c) => (r < 7 && c < 7) || (r < 7 && c >= n - 7) || (r >= n - 7 && c < 7);
+    ctx.beginPath();
+    for (let r = 0; r < n; r++) {
+      for (let c = 0; c < n; c++) {
+        if (!modules.data[r * n + c] || inEye(r, c)) continue;
+        const cx = (c + 0.5) * cell;
+        const cy = (r + 0.5) * cell;
+        ctx.moveTo(cx + cell * 0.48, cy);
+        ctx.arc(cx, cy, cell * 0.48, 0, Math.PI * 2);
+      }
+    }
+    ctx.fill();
+
+    for (const [r0, c0] of [[0, 0], [0, n - 7], [n - 7, 0]]) {
+      const x = c0 * cell;
+      const y = r0 * cell;
+      const s = 7 * cell;
+      ctx.beginPath();
+      roundRectPath(ctx, x, y, s, s, cell * 1.9);
+      roundRectPath(ctx, x + cell, y + cell, s - 2 * cell, s - 2 * cell, cell * 1.2);
+      ctx.fill('evenodd');
+      ctx.beginPath();
+      roundRectPath(ctx, x + 2 * cell, y + 2 * cell, 3 * cell, 3 * cell, cell * 0.85);
+      ctx.fill();
+    }
+  }, [url]);
+  return <canvas className="sign__qr" ref={ref} />;
+}
+
+// One printed Letter page per location — the “Report a Problem” sign, flat:
+// no white plates, everything reversed out of the forest green.
 function Sign({ row, origin }) {
   const host = origin.replace(/^https?:\/\//, '');
   return (
@@ -27,9 +69,10 @@ function Sign({ row, origin }) {
       <img className="sign__logo" src="/brand/mw-logo-white.png" alt="Muskoka Woods — est. 1979" />
       <h2 className="sign__title">Report a<br />Problem</h2>
       <p className="sign__sub">Anything wrong with your space?<br />Tell us and we’ll fix it.</p>
-      <div className="sign__qr"><QRCanvas url={`${origin}/?loc=${row.slug}`} /></div>
+      <SignQR url={`${origin}/?loc=${row.slug}`} />
       <p className="sign__scan">Scan to report it.</p>
       <p className="sign__easy">No app. No sign-in. No name needed.</p>
+      <span className="sign__rule" aria-hidden="true" />
       <div className="sign__loc">{row.name}</div>
       <p className="sign__note">This code is fixed to this space · {host}/?loc={row.slug}</p>
       <span className="sign__tree sign__tree--left" aria-hidden="true" />
