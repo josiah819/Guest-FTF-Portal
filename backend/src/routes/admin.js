@@ -123,6 +123,7 @@ router.get('/submissions', requirePerm(...VIEW_SUBMISSIONS), aw(async (req, res)
   const page = Math.max(parseInt(req.query.page, 10) || 1, 1);
   const pageSize = 25;
   params.push(pageSize, (page - 1) * pageSize);
+  const order = req.query.sort === 'oldest' ? 'ASC' : 'DESC';
 
   const sql = `
     SELECT s.id, s.public_code, s.type, s.status, s.urgency, s.message, s.ai_summary,
@@ -136,10 +137,32 @@ router.get('/submissions', requirePerm(...VIEW_SUBMISSIONS), aw(async (req, res)
       LEFT JOIN departments d ON d.id = s.department_id
       LEFT JOIN locations l ON l.id = s.location_id
       ${where.length ? 'WHERE ' + where.join(' AND ') : ''}
-     ORDER BY (s.urgency = 'safety' AND s.status IN ('new','in_progress')) DESC, s.created_at DESC
+     ORDER BY (s.urgency = 'safety' AND s.status IN ('new','in_progress')) DESC, s.created_at ${order}
      LIMIT $${i++} OFFSET $${i++}`;
   const { rows } = await pool.query(sql, params);
   res.json({ rows, total: rows[0]?.total_rows || 0, page, pageSize });
+}));
+
+// Queue-health numbers for the inbox header tiles, scoped like the list.
+router.get('/submissions/stats', requirePerm(...VIEW_SUBMISSIONS), aw(async (req, res) => {
+  const where = [];
+  const params = [];
+  deptFilter(req.actor, 'submissions.view_all', where, params, 1);
+  const { rows } = await pool.query(
+    `SELECT
+       count(*) FILTER (WHERE s.status = 'new')::int AS new_count,
+       count(*) FILTER (WHERE s.status = 'in_progress')::int AS in_progress,
+       round((max(EXTRACT(EPOCH FROM (now() - s.created_at)) / 3600.0)
+         FILTER (WHERE s.status IN ('new','in_progress')))::numeric, 1) AS oldest_open_h,
+       round((percentile_cont(0.5) WITHIN GROUP (ORDER BY
+           EXTRACT(EPOCH FROM (s.first_response_at - coalesce(s.sla_start_at, s.created_at))) / 3600.0)
+         FILTER (WHERE s.first_response_at IS NOT NULL
+           AND s.created_at > now() - interval '7 days'))::numeric, 1) AS median_first_action_h,
+       count(*) FILTER (WHERE s.resolved_at > now() - interval '7 days')::int AS resolved_7d
+       FROM submissions s
+      ${where.length ? 'WHERE ' + where.join(' AND ') : ''}`,
+    params);
+  res.json(rows[0]);
 }));
 
 router.get('/submissions/:id', requirePerm(...VIEW_SUBMISSIONS), aw(async (req, res) => {

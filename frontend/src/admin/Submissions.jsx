@@ -1,7 +1,10 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { api, getToken } from '../api';
 import { useActor } from './AdminApp';
+
+// Ticket changes (status, routing, notes) happen on the central RAP board —
+// this inbox is a read-only window over what guests submitted here.
 
 const STATUSES = [
   { id: 'new', label: 'New' },
@@ -10,6 +13,34 @@ const STATUSES = [
   { id: 'closed', label: 'Closed' },
 ];
 
+const SEG = [
+  { id: 'open', label: 'Open' },
+  { id: 'new', label: 'New' },
+  { id: 'in_progress', label: 'In progress' },
+  { id: 'resolved', label: 'Resolved' },
+  { id: 'closed', label: 'Closed' },
+  { id: 'all', label: 'All' },
+];
+
+const STATUS_CHIP = {
+  new: { label: 'New', cls: 'st-new' },
+  in_progress: { label: 'In progress', cls: 'st-prog' },
+  resolved: { label: 'Resolved', cls: 'st-done' },
+  closed: { label: 'Closed', cls: 'st-closed' },
+};
+
+// Departments Cindy is likely to have keep their signature colour; anything
+// else cycles through the same family so every spine stays distinct.
+const DEPT_KNOWN = {
+  housekeeping: '#2A78D6',
+  maintenance: '#EB6834',
+  kitchen: '#1BAF7A',
+  'food services': '#1BAF7A',
+  program: '#EDA100',
+  programs: '#EDA100',
+};
+const DEPT_CYCLE = ['#2A78D6', '#EB6834', '#1BAF7A', '#EDA100', '#7C5CD6', '#0E9CAD', '#D64F9E'];
+
 function timeAgo(date) {
   const s = (Date.now() - new Date(date).getTime()) / 1000;
   if (s < 3600) return `${Math.max(1, Math.floor(s / 60))}m ago`;
@@ -17,45 +48,34 @@ function timeAgo(date) {
   return `${Math.floor(s / 86400)}d ago`;
 }
 
+function waitAge(r) {
+  const h = (Date.now() - new Date(r.created_at).getTime()) / 3600000;
+  const label = h < 1 ? `${Math.max(1, Math.floor(h * 60))}m` : h < 48 ? `${Math.floor(h)}h` : `${Math.floor(h / 24)}d`;
+  const isOpen = ['new', 'in_progress'].includes(r.status);
+  const cls = isOpen && h >= 12 ? 'age-late' : isOpen && h >= 4 ? 'age-warn' : '';
+  return { label, cls };
+}
+
+function fmtReceived(ts) {
+  return new Date(ts).toLocaleString('en-CA', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+}
+
+function fmtHours(v) {
+  if (v == null) return '0h';
+  if (v >= 48) return `${Math.round(v / 24)}d`;
+  return `${Math.round(v * 10) / 10}h`;
+}
+
 function fmtWhen(ts) {
   return new Date(ts).toLocaleString('en-CA', { weekday: 'short', hour: 'numeric', minute: '2-digit', month: 'short', day: 'numeric' });
 }
 
-function Drawer({ id, departments, categories, assignees, onClose, onChanged }) {
-  const actor = useActor();
-  const canAssign = actor.can('submissions.assign');
-  const canRespond = actor.can('submissions.respond');
-  const canClose = actor.can('submissions.close');
+function Drawer({ id, onClose }) {
   const [data, setData] = useState(null);
-  const [note, setNote] = useState('');
-  const [busy, setBusy] = useState(false);
 
-  const load = useCallback(() => api.submission(id).then(setData).catch(() => onClose()), [id, onClose]);
-  useEffect(() => { load(); }, [load]);
-
-  async function patch(p) {
-    setBusy(true);
-    try {
-      await api.updateSubmission(id, p);
-      await load();
-      onChanged();
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function sendNote() {
-    if (!note.trim()) return;
-    setBusy(true);
-    try {
-      await api.addNote(id, note);
-      setNote('');
-      await load();
-      onChanged();
-    } finally {
-      setBusy(false);
-    }
-  }
+  useEffect(() => {
+    api.submission(id).then(setData).catch(() => onClose());
+  }, [id, onClose]);
 
   if (!data) return (
     <>
@@ -100,66 +120,13 @@ function Drawer({ id, departments, categories, assignees, onClose, onChanged }) 
 
         <dl className="kv">
           <dt>Location</dt><dd>{s.location || s.location_text || '—'}</dd>
+          <dt>Department</dt><dd>{s.department || 'Untriaged'}</dd>
+          <dt>Assigned to</dt><dd>{s.assigned_name || 'Nobody'}</dd>
           <dt>Guest</dt><dd>{s.guest_name || 'Anonymous'}{s.group_name ? ` · ${s.group_name}` : ''}</dd>
           {(s.guest_email || s.guest_phone) && <><dt>Contact</dt><dd>{[s.guest_email, s.guest_phone].filter(Boolean).join(' · ')}</dd></>}
           <dt>Source</dt><dd>{s.source.toUpperCase()}</dd>
           {s.rating && <><dt>Guest rating</dt><dd>{'★'.repeat(s.rating)}{s.rating_comment ? ` — “${s.rating_comment}”` : ''}</dd></>}
         </dl>
-
-        <div className="field-label" style={{ marginTop: 10 }}>Status</div>
-        <div className="status-row">
-          {STATUSES.map(st => {
-            const touchesClosed = ['resolved', 'closed'].includes(st.id) || ['resolved', 'closed'].includes(s.status);
-            const allowed = touchesClosed ? canClose : canRespond;
-            return (
-              <button
-                key={st.id}
-                className={`btn btn-small ${s.status === st.id ? 'btn-teal' : 'btn-ghost'}`}
-                disabled={busy || s.status === st.id || !allowed}
-                title={allowed ? undefined : 'Your role can’t change this status'}
-                onClick={() => patch({ status: st.id })}
-              >{st.label}</button>
-            );
-          })}
-        </div>
-
-        <div className="form-grid" style={{ marginTop: 6 }}>
-          <div>
-            <div className="field-label">Department</div>
-            <select className="input" value={s.department_id || ''} disabled={busy || !canAssign}
-              onChange={e => patch({ departmentId: e.target.value || null })}>
-              <option value="">Unassigned</option>
-              {departments.filter(d => d.active).map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
-            </select>
-          </div>
-          <div>
-            <div className="field-label">Category</div>
-            <select className="input" value={s.category_id || ''} disabled={busy || !canAssign}
-              onChange={e => patch({ categoryId: e.target.value || null })}>
-              <option value="">Uncategorized</option>
-              {categories.filter(c => c.active).map(c => <option key={c.id} value={c.id}>{c.emoji} {c.name}</option>)}
-            </select>
-          </div>
-          <div>
-            <div className="field-label">Assigned to</div>
-            <select className="input" value={s.assigned_user_id || ''} disabled={busy || !canAssign}
-              onChange={e => patch({ assignedUserId: e.target.value || null })}>
-              <option value="">Nobody</option>
-              {assignees.map(u => <option key={u.id} value={u.id}>{u.display_name}</option>)}
-            </select>
-          </div>
-        </div>
-
-        <div className="field-label">Urgency</div>
-        <div className="status-row" style={{ margin: '0 0 8px' }}>
-          {['low', 'normal', 'high', 'safety'].map(u => (
-            <button key={u}
-              className={`btn btn-small ${s.urgency === u ? 'btn-teal' : 'btn-ghost'}`}
-              disabled={busy || s.urgency === u || !canAssign}
-              onClick={() => patch({ urgency: u })}
-            >{u}</button>
-          ))}
-        </div>
 
         <div className="field-label">Timeline & notes</div>
         <ul className="timeline">
@@ -173,14 +140,6 @@ function Drawer({ id, departments, categories, assignees, onClose, onChanged }) 
             </li>
           ))}
         </ul>
-        {canRespond && (
-          <div style={{ display: 'flex', gap: 8 }}>
-            <input className="input" placeholder="Add an internal note…" value={note}
-              onChange={e => setNote(e.target.value)}
-              onKeyDown={e => e.key === 'Enter' && sendNote()} />
-            <button className="btn btn-teal btn-small" style={{ flexShrink: 0 }} disabled={busy || !note.trim()} onClick={sendNote}>Add</button>
-          </div>
-        )}
       </aside>
     </>
   );
@@ -193,10 +152,11 @@ export default function Submissions() {
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
   const [openId, setOpenId] = useState(null);
+  const [openRowId, setOpenRowId] = useState(null);
+  const [stats, setStats] = useState(null);
   const [departments, setDepartments] = useState([]);
   const [categories, setCategories] = useState([]);
   const [locations, setLocations] = useState([]);
-  const [assignees, setAssignees] = useState([]);
   const [settings, setSettings] = useState(null);
 
   const filters = {
@@ -206,6 +166,7 @@ export default function Submissions() {
     type: searchParams.get('type') || '',
     urgency: searchParams.get('urgency') || '',
     q: searchParams.get('q') || '',
+    sort: searchParams.get('sort') || '',
   };
 
   function setFilter(key, value) {
@@ -219,8 +180,11 @@ export default function Submissions() {
     api.catalog('departments').then(d => setDepartments(d.rows));
     api.catalog('categories').then(d => setCategories(d.rows));
     api.catalog('locations').then(d => setLocations(d.rows));
-    api.assignees().then(d => setAssignees(d.rows)).catch(() => {});
     api.settings().then(d => setSettings(d.settings));
+  }, []);
+
+  useEffect(() => {
+    api.submissionStats().then(setStats).catch(() => {});
   }, []);
 
   const load = useCallback(() => {
@@ -230,6 +194,14 @@ export default function Submissions() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchParams, page]);
   useEffect(() => { load(); }, [load]);
+
+  const deptColors = useMemo(() => {
+    const map = {};
+    departments.forEach((d, idx) => {
+      map[d.name] = DEPT_KNOWN[d.name.trim().toLowerCase()] || DEPT_CYCLE[idx % DEPT_CYCLE.length];
+    });
+    return map;
+  }, [departments]);
 
   const pages = Math.max(1, Math.ceil(total / 25));
 
@@ -246,12 +218,12 @@ export default function Submissions() {
   }
 
   return (
-    <>
+    <div className="rap-inbox">
       <div className="admin-head">
         <div>
           <div className="kicker" style={{ color: 'var(--orange)' }}>Inbox</div>
           <h1 className="display">Submissions</h1>
-          <div className="sub">{total} matching · safety concerns float to the top</div>
+          <div className="sub">{total} matching · safety concerns float to the top · updates happen on the RAP board</div>
         </div>
         {settings?.features?.csvExport && actor.can('export.csv') && (
           <div className="actions">
@@ -260,69 +232,139 @@ export default function Submissions() {
         )}
       </div>
 
-      <div className="filters">
-        <select className="input" value={filters.status} onChange={e => setFilter('status', e.target.value)}>
-          <option value="open">Open (new + in progress)</option>
-          <option value="all">All statuses</option>
-          {STATUSES.map(s => <option key={s.id} value={s.id}>{s.label}</option>)}
-        </select>
-        <select className="input" value={filters.category} onChange={e => setFilter('category', e.target.value)}>
+      <div className="rp-stats">
+        <div className="rp-tile">
+          <div className="l">Open</div>
+          <div className={`v${stats?.new_count ? ' hot' : ''}`}>{stats ? stats.new_count : '—'}</div>
+        </div>
+        <div className="rp-tile">
+          <div className="l">In progress</div>
+          <div className="v">{stats ? stats.in_progress : '—'}</div>
+        </div>
+        <div className="rp-tile">
+          <div className="l">Oldest waiting</div>
+          <div className="v">{stats ? fmtHours(stats.oldest_open_h) : '—'}</div>
+        </div>
+        <div className="rp-tile">
+          <div className="l">Median first action</div>
+          <div className="v">{stats ? fmtHours(stats.median_first_action_h) : '—'}</div>
+        </div>
+        <div className="rp-tile">
+          <div className="l">Resolved · 7d</div>
+          <div className="v">{stats ? stats.resolved_7d : '—'}</div>
+        </div>
+      </div>
+
+      <div className="rp-filterbar">
+        <nav className="rp-seg" aria-label="Status filter">
+          {SEG.map(s => (
+            <button key={s.id} className={filters.status === s.id ? 'on' : ''}
+              onClick={() => setFilter('status', s.id === 'open' ? '' : s.id)}>
+              {s.label}
+            </button>
+          ))}
+        </nav>
+        <select className="rp-fselect" data-active={!!filters.category} value={filters.category}
+          onChange={e => setFilter('category', e.target.value)}>
           <option value="">All categories</option>
           {categories.map(c => <option key={c.slug} value={c.slug}>{c.emoji} {c.name}</option>)}
         </select>
-        <select className="input" value={filters.location} onChange={e => setFilter('location', e.target.value)}>
+        <select className="rp-fselect" data-active={!!filters.location} value={filters.location}
+          onChange={e => setFilter('location', e.target.value)}>
           <option value="">All locations</option>
           {locations.map(l => <option key={l.slug} value={l.slug}>{l.name}</option>)}
         </select>
-        <select className="input" value={filters.type} onChange={e => setFilter('type', e.target.value)}>
+        <select className="rp-fselect" data-active={!!filters.type} value={filters.type}
+          onChange={e => setFilter('type', e.target.value)}>
           <option value="">All types</option>
           {['issue', 'request', 'feedback', 'compliment'].map(t => <option key={t} value={t}>{t}</option>)}
         </select>
-        <select className="input" value={filters.urgency} onChange={e => setFilter('urgency', e.target.value)}>
+        <select className="rp-fselect" data-active={!!filters.urgency} value={filters.urgency}
+          onChange={e => setFilter('urgency', e.target.value)}>
           <option value="">Any urgency</option>
           {['safety', 'high', 'normal', 'low'].map(u => <option key={u} value={u}>{u}</option>)}
         </select>
-        <input className="input" placeholder="Search message, code, name…" value={filters.q}
+        <select className="rp-fselect" data-active={!!filters.sort} value={filters.sort}
+          onChange={e => setFilter('sort', e.target.value)}>
+          <option value="">Sort: newest first</option>
+          <option value="oldest">Sort: oldest first</option>
+        </select>
+        <input className="rp-fsearch" placeholder="Search message, code, name…" value={filters.q}
           onChange={e => setFilter('q', e.target.value)} />
       </div>
 
-      <div className="card" style={{ padding: '4px 0' }}>
-        {!rows && <div className="center-pad"><span className="spinner" /></div>}
-        {rows && rows.length === 0 && <div className="center-pad muted">Nothing here — adjust the filters or enjoy the quiet. 🌲</div>}
-        {rows && rows.map(r => (
-          <div className="sub-row" key={r.id} onClick={() => setOpenId(r.id)} role="button" tabIndex={0}
-            onKeyDown={e => e.key === 'Enter' && setOpenId(r.id)}>
-            <div className="em">{r.category_emoji || '📝'}</div>
-            <div style={{ minWidth: 0 }}>
-              <div className="msg">{r.ai_summary || r.message}</div>
-              <div className="meta">
-                {r.public_code} · {r.location || r.location_text || 'No location'} · {timeAgo(r.created_at)}
-                {r.guest_name ? ` · ${r.guest_name}` : ''}{r.group_name ? ` (${r.group_name})` : ''}
-                {r.photo_path ? ' · 📷' : ''}
-                {r.rating ? ` · ${'★'.repeat(r.rating)}` : ''}
+      {!rows && <div className="rp-panel"><div className="center-pad"><span className="spinner" /></div></div>}
+      {rows && rows.length === 0 && (
+        <div className="rp-panel"><div className="center-pad muted">Nothing here — adjust the filters or enjoy the quiet. 🌲</div></div>
+      )}
+
+      <ul className="rp-list">
+        {rows && rows.map(r => {
+          const expanded = openRowId === r.id;
+          const age = waitAge(r);
+          const chip = STATUS_CHIP[r.status] || STATUS_CHIP.new;
+          const deptColor = r.department ? deptColors[r.department] || 'var(--rp-dept-none)' : 'var(--rp-dept-none)';
+          return (
+            <li key={r.id}>
+              <div className="rp-panel rp-card" style={{ '--spine-color': deptColor }}>
+                <button type="button" className="rp-rowhead" aria-expanded={expanded}
+                  onClick={() => setOpenRowId(expanded ? null : r.id)}>
+                  <div className="rp-rowline">
+                    <span className="rp-cabin">{r.location || r.location_text || 'No location'}</span>
+                    <span className="rp-dept">
+                      <span className="rp-dot" style={{ background: deptColor }} />
+                      {r.department || 'Untriaged'}
+                    </span>
+                    {r.category && <span className="rp-chip cat">{r.category_emoji} {r.category}</span>}
+                    <span className="rp-rowright">
+                      {r.type === 'compliment' && <span className="rp-mood" title="Compliment">💚</span>}
+                      {r.photo_path && <span className="rp-mood" title="Photo attached">📷</span>}
+                      {(r.urgency === 'safety' || r.urgency === 'high') && (
+                        <span className={`rp-chip u-${r.urgency}`}>{r.urgency}</span>
+                      )}
+                      <span className={`rp-age ${age.cls}`} title="Time since received">{age.label}</span>
+                      <span className={`rp-chip ${chip.cls}`}><span className="rp-dot" />{chip.label}</span>
+                      <span className="rp-chev" aria-hidden="true">▸</span>
+                    </span>
+                  </div>
+                  {!expanded && <p className="rp-preview">{r.ai_summary || r.message}</p>}
+                  <p className="rp-meta">
+                    {r.public_code} · received {fmtReceived(r.created_at)}
+                    {r.guest_name ? ` · ${r.guest_name}` : ''}{r.group_name ? ` (${r.group_name})` : ''}
+                  </p>
+                </button>
+                <div className="rp-reveal" data-open={expanded || undefined}>
+                  <div className="rp-reveal-clip">
+                    <div className="rp-detail">
+                      <blockquote>“{r.message}”</blockquote>
+                      {r.ai_summary && <p className="rp-ai">✨ <strong>AI summary:</strong> {r.ai_summary}</p>}
+                      <p className="rp-subline">
+                        {r.guest_name || 'Anonymous'}{r.group_name ? ` · ${r.group_name}` : ''} · via {r.source.toUpperCase()}
+                        {r.rating ? ` · rated ${'★'.repeat(r.rating)}` : ''}
+                      </p>
+                      <button className="rp-btn rp-openfull" onClick={() => setOpenId(r.id)}>
+                        Full ticket · notes & history →
+                      </button>
+                    </div>
+                  </div>
+                </div>
               </div>
-            </div>
-            <div className="right">
-              <span className={`badge s-${r.status}`}>{STATUSES.find(x => x.id === r.status)?.label || r.status}</span>
-              {(r.urgency === 'safety' || r.urgency === 'high') && <span className={`badge u-${r.urgency}`}>{r.urgency}</span>}
-              {r.type === 'compliment' && <span className="badge t-compliment">💚</span>}
-            </div>
-          </div>
-        ))}
-      </div>
+            </li>
+          );
+        })}
+      </ul>
 
       {pages > 1 && (
-        <div style={{ display: 'flex', gap: 8, justifyContent: 'center', marginTop: 16 }}>
-          <button className="btn btn-ghost btn-small" disabled={page <= 1} onClick={() => setPage(p => p - 1)}>← Prev</button>
+        <div className="rp-pager">
+          <button className="rp-btn" disabled={page <= 1} onClick={() => setPage(p => p - 1)}>← Prev</button>
           <span className="muted" style={{ alignSelf: 'center' }}>Page {page} / {pages}</span>
-          <button className="btn btn-ghost btn-small" disabled={page >= pages} onClick={() => setPage(p => p + 1)}>Next →</button>
+          <button className="rp-btn" disabled={page >= pages} onClick={() => setPage(p => p + 1)}>Next →</button>
         </div>
       )}
 
-      {openId && (
-        <Drawer id={openId} departments={departments} categories={categories} assignees={assignees}
-          onClose={() => setOpenId(null)} onChanged={load} />
-      )}
-    </>
+      <p className="rp-foot">Reports arrive via the QR signs posted at each location</p>
+
+      {openId && <Drawer id={openId} onClose={() => setOpenId(null)} />}
+    </div>
   );
 }

@@ -73,6 +73,7 @@ export const api = {
     request(`/api/admin/metrics?days=${days}${department ? `&department=${department}` : ''}`, { auth: true }),
   insights: () => request('/api/admin/insights', { method: 'POST', auth: true }),
   submissions: (params) => request(`/api/admin/submissions?${new URLSearchParams(params)}`, { auth: true }),
+  submissionStats: () => request('/api/admin/submissions/stats', { auth: true }),
   submission: (id) => request(`/api/admin/submissions/${id}`, { auth: true }),
   updateSubmission: (id, patch) => request(`/api/admin/submissions/${id}`, { method: 'PATCH', body: patch, auth: true }),
   addNote: (id, note) => request(`/api/admin/submissions/${id}/notes`, { method: 'POST', body: { note }, auth: true }),
