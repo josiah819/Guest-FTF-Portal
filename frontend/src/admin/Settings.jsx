@@ -557,7 +557,7 @@ export default function Settings() {
 
           <h3 style={{ marginTop: 26 }}>Accountability</h3>
           <p className="hint">
-            Shown on the dashboard’s SLA card and the Runbook page — “who monitors this?” should never
+            Shown on the dashboard’s SLA card — “who monitors this?” should never
             depend on who you ask.
           </p>
           <div className="form-grid">

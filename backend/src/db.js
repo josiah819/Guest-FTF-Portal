@@ -80,7 +80,7 @@ const DEFAULT_SETTINGS = {
     openaiModel: '',                  // e.g. qwen3:4b
   },
   integrations: { notifyEmail: '' },
-  // Who owns what — shown on the dashboard SLA card and the Runbook page,
+  // Who owns what — shown on the dashboard SLA card,
   // so "who monitors this?" always has a written answer.
   accountability: {
     systemOwner: 'Guest Services',

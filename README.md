@@ -33,7 +33,6 @@ Built to match the vision in Cindy's email:
 | "Demo the app for Cindy" — how does it work? triage? workflow? notifications? analytics/SLA? | **`/how`** — a shareable, no-login page: the 5-step journey, how staff get notified, what's measured, plus a **5-minute live demo script** with a scannable QR |
 | "What is the measurement for success? Who monitors the SLA?" | Dashboard now shows **SLA compliance %** (first response & resolution within target) on an always-visible card that names the **SLA monitor** and their review cadence (Settings → General → Accountability) |
 | "Reduce friction — shorten the form" | Message-first layout; optional contact fields collapse behind one tap; **returning guests are remembered** on their own device (never on kiosks); QR still pre-fills the location |
-| "Who's accountable? Maintenance? What could break? Security? SOPs?" | **Admin → Runbook** — printable page with named owners, an honest what-could-break table, security features, and **8 written SOPs** (daily triage, safety, weekly review, QR posting, update/rollback, backup/restore, password reset, season start/end) |
 | "Start with a test — what areas, which departments, how soon?" | The **pilot plan** on `/how`: Week 0 staff dry-run → Weeks 1–2 small pilot (3–5 cabins + dining hall) → Week 3 review & widen, with the five numbers to judge it by |
 
 ## Quick start
@@ -58,8 +57,7 @@ Caddy reverse proxy serves it at `woodsvoice.10.0.12.189.nip.io` (labels on the
 | http://woodsvoice.10.0.12.189.nip.io/?loc=cabin-3 | Guest form with location pre-filled — what a cabin QR encodes |
 | http://woodsvoice.10.0.12.189.nip.io/?kiosk=1 | Kiosk mode for a lobby tablet (big buttons, auto-reset) |
 | http://woodsvoice.10.0.12.189.nip.io/t/MW-XXXXXX | Guest tracking page |
-| http://woodsvoice.10.0.12.189.nip.io/admin | Guest Care HQ (dashboard, inbox, runbook, settings) |
-| http://woodsvoice.10.0.12.189.nip.io/admin/runbook | **Runbook & SOPs** — owners, risks, security, printable procedures |
+| http://woodsvoice.10.0.12.189.nip.io/admin | Guest Care HQ (dashboard, inbox, QR codes, settings) |
 
 On phones, Guest Care HQ uses a bottom tab bar and can be added to the home screen (PWA manifest, `start_url: /admin`).
 

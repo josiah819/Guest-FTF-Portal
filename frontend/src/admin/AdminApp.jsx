@@ -4,7 +4,6 @@ import { api, getToken, setToken } from '../api';
 import Dashboard from './Dashboard';
 import Submissions from './Submissions';
 import LocationsQR from './LocationsQR';
-import Runbook from './Runbook';
 import Settings from './Settings';
 import Team from './Team';
 
@@ -66,7 +65,6 @@ const NAV = [
   { to: '/admin/submissions', icon: '📬', label: 'Inbox', perms: ['submissions.view_all', 'submissions.view_dept'] },
   { to: '/admin/locations', icon: '📍', label: 'QR codes', perms: ['catalogs.manage'] },
   { to: '/admin/team', icon: '👥', label: 'Team', perms: ['users.manage'] },
-  { to: '/admin/runbook', icon: '📖', label: 'Runbook', perms: [] },
   { to: '/admin/settings', icon: '⚙️', label: 'Settings', perms: [] },
 ];
 
@@ -150,7 +148,6 @@ export default function AdminApp() {
             <Route path="submissions" element={<Submissions />} />
             <Route path="locations" element={<LocationsQR />} />
             <Route path="team" element={<Team />} />
-            <Route path="runbook" element={<Runbook />} />
             <Route path="settings" element={<Settings />} />
             <Route path="*" element={<Navigate to="/admin" replace />} />
           </Routes>

@@ -1001,10 +1001,6 @@ textarea.input { min-height: 110px; resize: vertical; }
   .sign-wrap { display: block; page: sign; break-after: page; }
   .sign-wrap:last-child { break-after: auto; }
   .sign { zoom: 1; box-shadow: none; }
-  /* runbook prints with every SOP expanded */
-  .sop .sop-body { display: block !important; }
-  .sop-head .chev { display: none; }
-  .sop, .risk-row, .own, .sec { break-inside: avoid; }
   .card { box-shadow: none; }
 }
 
@@ -1299,125 +1295,6 @@ textarea.input { min-height: 110px; resize: vertical; }
   max-width: 180px;
 }
 .sla-note { flex: 1; min-width: 220px; }
-
-/* ============================================================
-   RUNBOOK — ownership, risks, SOPs
-   ============================================================ */
-
-.own-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-@media screen and (max-width: 700px) { .own-grid { grid-template-columns: 1fr; } }
-.own {
-  background: var(--paper);
-  border: 1px solid var(--line);
-  border-radius: var(--r-md);
-  padding: 14px 16px;
-}
-.own--cad { grid-column: 1 / -1; background: var(--teal-mist); border-color: var(--line-teal); }
-.own .r {
-  font-family: var(--font-head);
-  font-weight: 800;
-  font-size: 10.5px;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
-  color: var(--orange);
-}
-.own .n {
-  font-family: var(--font-display);
-  text-transform: uppercase;
-  font-size: 26px;
-  color: var(--teal-dark);
-  margin: 4px 0 4px;
-  line-height: 1;
-}
-.own .d { font-size: 13px; color: var(--ink-soft); }
-
-.risk-table { display: flex; flex-direction: column; }
-.risk-row { padding: 12px 0; border-bottom: 1px solid var(--line); }
-.risk-row:last-child { border-bottom: 0; }
-.risk-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  font-family: var(--font-head);
-  font-size: 14px;
-  color: var(--ink);
-}
-.risk-body { margin-top: 6px; }
-.risk-body p { margin: 3px 0; font-size: 13.5px; color: var(--ink-soft); }
-.risk-body .lab {
-  font-family: var(--font-head);
-  font-weight: 800;
-  font-size: 10.5px;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-  color: var(--ink-faint);
-  margin-right: 4px;
-}
-
-.sec-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-@media screen and (max-width: 700px) { .sec-grid { grid-template-columns: 1fr; } }
-.sec {
-  background: var(--paper);
-  border: 1px solid var(--line);
-  border-radius: var(--r-md);
-  padding: 12px 14px;
-}
-.sec .t { font-family: var(--font-head); font-weight: 800; font-size: 13px; color: var(--teal-dark); }
-.sec .d { font-size: 12.5px; color: var(--ink-soft); margin-top: 3px; }
-
-.sop { border: 1px solid var(--line); border-radius: var(--r-md); margin-bottom: 8px; overflow: hidden; background: var(--card); }
-.sop-head {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  width: 100%;
-  border: 0;
-  background: none;
-  padding: 13px 15px;
-  cursor: pointer;
-  text-align: left;
-}
-.sop-head .num {
-  font-family: var(--font-head);
-  font-weight: 800;
-  font-size: 10.5px;
-  letter-spacing: 0.1em;
-  color: var(--orange);
-  flex-shrink: 0;
-}
-.sop-head .ttl { font-family: var(--font-head); font-weight: 700; font-size: 14px; color: var(--ink); flex: 1; }
-.sop-head .who {
-  font-size: 11px;
-  font-weight: 700;
-  font-family: var(--font-head);
-  color: var(--green-dark);
-  background: #E4F0CD;
-  border-radius: 999px;
-  padding: 3px 10px;
-  white-space: nowrap;
-}
-.sop-head .chev { font-size: 18px; color: var(--ink-faint); width: 18px; text-align: center; flex-shrink: 0; }
-.sop-body { display: none; padding: 0 16px 14px; }
-.sop.open .sop-body { display: block; }
-.sop-body ol { margin: 6px 0 0; padding-left: 20px; }
-.sop-body li { font-size: 13.5px; color: var(--ink-soft); padding: 3px 0; }
-.sop-code {
-  background: var(--teal-deep);
-  color: #CDE3D2;
-  border-radius: var(--r-sm);
-  padding: 12px 14px;
-  font-family: ui-monospace, 'Cascadia Mono', Consolas, monospace;
-  font-size: 12px;
-  line-height: 1.6;
-  overflow-x: auto;
-  margin: 10px 0 0;
-  white-space: pre;
-}
-@media screen and (max-width: 560px) {
-  .sop-head { flex-wrap: wrap; gap: 8px; }
-  .sop-head .ttl { flex-basis: calc(100% - 80px); }
-}
 
 /* ---------- team & roles ---------- */
 
