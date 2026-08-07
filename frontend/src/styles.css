@@ -673,7 +673,7 @@ textarea.input { min-height: 110px; resize: vertical; }
 
 .grid-2 { display: grid; grid-template-columns: 1.6fr 1fr; gap: 16px; }
 .grid-2-even { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
-@media (max-width: 980px) { .grid-2, .grid-2-even { grid-template-columns: 1fr; } }
+@media screen and (max-width: 980px) { .grid-2, .grid-2-even { grid-template-columns: 1fr; } }
 .stack { display: flex; flex-direction: column; gap: 16px; }
 
 /* badges */
@@ -856,7 +856,7 @@ textarea.input { min-height: 110px; resize: vertical; }
 .tabs button.on { background: var(--teal); border-color: var(--teal); color: var(--paper); }
 
 .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
-@media (max-width: 760px) { .form-grid { grid-template-columns: 1fr; } }
+@media screen and (max-width: 760px) { .form-grid { grid-template-columns: 1fr; } }
 .form-grid label, .form-col label {
   display: block;
   font-family: var(--font-head);
@@ -1119,7 +1119,7 @@ textarea.input { min-height: 110px; resize: vertical; }
 .admin-nav__aux .ic { width: 19px; text-align: center; }
 
 /* ---------- responsive admin: phone = top bar + bottom tab bar ---------- */
-@media (max-width: 860px) {
+@media screen and (max-width: 860px) {
   .admin-shell { flex-direction: column; }
   .admin-side {
     width: 100%;
@@ -1201,7 +1201,7 @@ textarea.input { min-height: 110px; resize: vertical; }
    ============================================================ */
 
 .contact-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-@media (max-width: 480px) { .contact-grid { grid-template-columns: 1fr; } }
+@media screen and (max-width: 480px) { .contact-grid { grid-template-columns: 1fr; } }
 
 .contact-teaser {
   display: flex;
@@ -1251,13 +1251,13 @@ textarea.input { min-height: 110px; resize: vertical; }
 .guest-foot__links { display: flex; gap: 16px; }
 
 /* urgency chips: 2×2 on small phones so labels stay readable */
-@media (max-width: 400px) {
+@media screen and (max-width: 400px) {
   .urgency-row { grid-template-columns: 1fr 1fr; }
 }
 
 /* category tiles: compact 2-across rows on phones — the form should scroll
    like a note, not a menu */
-@media (max-width: 480px) {
+@media screen and (max-width: 480px) {
   .cat-grid { grid-template-columns: 1fr 1fr; gap: 8px; }
   .cat-tile {
     flex-direction: row;
@@ -1305,7 +1305,7 @@ textarea.input { min-height: 110px; resize: vertical; }
    ============================================================ */
 
 .own-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-@media (max-width: 700px) { .own-grid { grid-template-columns: 1fr; } }
+@media screen and (max-width: 700px) { .own-grid { grid-template-columns: 1fr; } }
 .own {
   background: var(--paper);
   border: 1px solid var(--line);
@@ -1356,7 +1356,7 @@ textarea.input { min-height: 110px; resize: vertical; }
 }
 
 .sec-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-@media (max-width: 700px) { .sec-grid { grid-template-columns: 1fr; } }
+@media screen and (max-width: 700px) { .sec-grid { grid-template-columns: 1fr; } }
 .sec {
   background: var(--paper);
   border: 1px solid var(--line);
@@ -1414,7 +1414,7 @@ textarea.input { min-height: 110px; resize: vertical; }
   margin: 10px 0 0;
   white-space: pre;
 }
-@media (max-width: 560px) {
+@media screen and (max-width: 560px) {
   .sop-head { flex-wrap: wrap; gap: 8px; }
   .sop-head .ttl { flex-basis: calc(100% - 80px); }
 }
@@ -1947,7 +1947,7 @@ a.rp-btn { text-decoration: none; display: inline-block; }
 }
 .rp-foot { margin: 16px 2px 0; font-size: 12.5px; color: var(--rp-muted); }
 
-@media (max-width: 860px) {
+@media screen and (max-width: 860px) {
   .rp-stats { grid-template-columns: 1fr 1fr; gap: 8px; }
   .rp-tile { padding: 10px 13px 8px; }
   .rp-tile .v { font-size: 28px; }
