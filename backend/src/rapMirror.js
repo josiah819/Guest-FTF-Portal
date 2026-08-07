@@ -25,7 +25,7 @@
 //    include it.
 
 const { pool, getSettings } = require('./db');
-const { recomputeDueDates } = require('./routing');
+const { routeSubmission, recomputeDueDates } = require('./routing');
 
 const INGEST_URL = process.env.RAP_INGEST_URL || 'https://rap.mwprogram.com/api/ingest';
 const EXPORT_URL = process.env.RAP_EXPORT_URL ||
@@ -37,7 +37,11 @@ const BOARD_BASE = (() => {
 
 const TICK_MS = 60 * 1000;
 const RATE_LIMIT_PAUSE_MS = 65 * 1000;
-const HISTORY_BATCH_MAX = 50;   // per ticket per tick — a flood can catch up next tick
+const HISTORY_BATCH_MAX = 50;     // event inserts per ticket per tick — a flood can catch up next tick
+const HISTORY_PARSE_MAX = 200;    // history entries even examined per ticket
+const BODY_MAX_BYTES = 10 * 1024 * 1024;  // the export is untrusted — never buffer/parse monsters
+const TICKETS_MAX = 1000;         // tickets examined per tick
+const RAW_MAX_BYTES = 100 * 1024; // per-ticket raw JSONB kept for debugging
 
 // RAP's board statuses → ours. RAP normalizes to open/in_progress/resolved;
 // tolerate dashes/spaces and a future "closed".
@@ -66,6 +70,7 @@ let running = false;
 let haltedReason = '';
 let pausedUntil = 0;
 let warnedNoKey = false;
+let etag = '';                 // export supports ETag/304 — most ticks are a cheap no-op
 const state = {
   lastSyncAt: null,       // last successful fetch+apply
   lastError: '',          // human-readable, shown in Settings
@@ -89,6 +94,13 @@ const asInt = (v) => {
   const n = parseInt(v, 10);
   return Number.isFinite(n) ? n : null;
 };
+const asScale5 = (v) => {   // RAP grades on 1..5; anything else is noise, not data
+  const n = asInt(v);
+  return n >= 1 && n <= 5 ? n : null;
+};
+// Plain-object lookups over attacker-controlled keys must never walk the
+// prototype ('constructor', '__proto__', …).
+const mapGet = (map, key) => Object.hasOwn(map, key) ? map[key] : undefined;
 const asDate = (v) => {
   if (!v) return null;
   const d = new Date(v);
@@ -100,8 +112,10 @@ function mirrorConfigured() { return !!EXPORT_KEY; }
 // Does the mirror own triage? routes/public.js asks this before running the
 // local classifier — when the forwarded copy will be triaged by RAP and
 // mirrored back, running Haiku here too would just double-spend and disagree.
+// A halted mirror hands triage straight back: an external system's outage must
+// never leave safety grading switched off locally.
 function rapMirrorOwnsTriage(settings) {
-  return mirrorConfigured() &&
+  return mirrorConfigured() && !haltedReason &&
     settings.features.rapMirror !== false &&
     settings.features.rapForward !== false;
 }
@@ -119,11 +133,12 @@ function ticketListOf(body) {
 function parseTicket(t) {
   if (!t || typeof t !== 'object') return null;
   const id = asInt(pick(t, 'id', 'ticket_id', 'ticket', 'number'));
-  const rawStatus = norm(nameOf(pick(t, 'status', 'state')));
+  const rawStatus = norm(nameOf(pick(t, 'status', 'state'))).slice(0, 80);
   if (id == null || !rawStatus) return null;
   const historyRaw = pick(t, 'history', 'events', 'timeline', 'log');
-  const history = Array.isArray(historyRaw) ? historyRaw.map(h => {
+  const history = Array.isArray(historyRaw) ? historyRaw.slice(0, HISTORY_PARSE_MAX).map(h => {
     if (typeof h === 'string') return { text: h, at: null };
+    if (!h || typeof h !== 'object') return { text: '', at: null };
     const text = String(pick(h, 'text', 'detail', 'message', 'note', 'entry') ?? '').trim();
     const by = pick(h, 'by', 'author', 'user', 'name');
     return {
@@ -134,14 +149,13 @@ function parseTicket(t) {
   return {
     id,
     status: rawStatus,                                             // RAP's own value
-    localStatus: STATUS_MAP[rawStatus] || null,                    // null = unknown status, don't touch ours
-    department: norm(nameOf(pick(t, 'department', 'dept', 'department_slug', 'department_name'))),
-    category: norm(nameOf(pick(t, 'category', 'category_slug', 'category_name'))),
-    severity: asInt(pick(t, 'severity', 'sev')),
-    mood: asInt(pick(t, 'mood', 'guest_mood')),
+    localStatus: mapGet(STATUS_MAP, rawStatus) || null,            // null = unknown status, don't touch ours
+    department: norm(nameOf(pick(t, 'department', 'dept', 'department_slug', 'department_name'))).slice(0, 80),
+    category: norm(nameOf(pick(t, 'category', 'category_slug', 'category_name'))).slice(0, 80),
+    severity: asScale5(pick(t, 'severity', 'sev')),
+    mood: asScale5(pick(t, 'mood', 'guest_mood')),
     building: String(nameOf(pick(t, 'building', 'building_name', 'cabin', 'location')) ?? ''),
     summary: String(pick(t, 'summary', 'ai_summary') ?? ''),
-    code: String(pick(t, 'code', 'source_code', 'meta.code', 'raw.code') ?? '').toUpperCase(),
     updatedAt: asDate(pick(t, 'updated_at', 'modified_at')),
     resolvedAt: asDate(pick(t, 'resolved_at', 'closed_at')),
     history,
@@ -156,20 +170,22 @@ async function loadLocalTaxonomy() {
   return { departments, categories };
 }
 
+// Whole-word matching — substring matching would let a short RAP label like
+// "it" claim "Facil-it-ies" and silently re-route the submission.
 function matchDepartment(rapDept, departments) {
   if (!rapDept) return null;
-  const want = rapDept.replace(/_/g, ' ');
-  const alias = DEPT_ALIASES[rapDept];
+  const wants = rapDept.split('_').filter(Boolean);
+  const alias = mapGet(DEPT_ALIASES, rapDept);
   return departments.find(d => {
-    const have = d.name.toLowerCase();
-    return have.includes(want) || (alias && have.includes(alias));
+    const tokens = d.name.toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
+    return wants.every(w => tokens.includes(w)) || (alias && tokens.includes(alias));
   }) || null;
 }
 
 function matchCategory(rapCat, categories) {
   if (!rapCat) return null;
   return categories.find(c => norm(c.slug) === rapCat) ||
-    categories.find(c => c.slug === CATEGORY_MAP[rapCat]) || null;
+    categories.find(c => c.slug === mapGet(CATEGORY_MAP, rapCat)) || null;
 }
 
 // ---------- applying one ticket ----------
@@ -181,8 +197,17 @@ async function applyTicket(t, submissionId, taxonomy) {
   const { rows: mirrors } = await pool.query('SELECT * FROM rap_mirror WHERE submission_id = $1', [submissionId]);
   const prev = mirrors[0] || null;
 
+  // RAP's timestamps are untrusted — outside [capture, now] they're noise.
+  const clampTs = (d) => {
+    if (!d) return null;
+    const x = d.getTime();
+    return x >= new Date(sub.created_at).getTime() && x <= Date.now() ? d : null;
+  };
+
   const client = await pool.connect();
   let changed = false;
+  let triagedFirstTime = false;   // department landed on a previously unrouted note
+  let triageMoved = false;        // dept/urgency changed → due dates need re-deriving
   try {
     await client.query('BEGIN');
 
@@ -194,9 +219,13 @@ async function applyTicket(t, submissionId, taxonomy) {
         sets.push('first_response_at = now()');
       }
       if (['resolved', 'closed'].includes(t.localStatus) && !sub.resolved_at) {
-        sets.push(`resolved_at = ${t.resolvedAt ? '$' + (params.push(t.resolvedAt), params.length) : 'now()'}`);
+        const resolvedAt = clampTs(t.resolvedAt);
+        sets.push(`resolved_at = ${resolvedAt ? '$' + (params.push(resolvedAt), params.length) : 'now()'}`);
       }
-      if (['new', 'in_progress'].includes(t.localStatus)) sets.push('resolved_at = NULL');
+      // Same reopen semantics as the staff PATCH: only a return to 'new'
+      // clears resolved_at (resolved→in_progress keeps it, so a rework never
+      // reads as a resolution-SLA breach).
+      if (t.localStatus === 'new') sets.push('resolved_at = NULL');
       await client.query(`UPDATE submissions SET ${sets.join(', ')} WHERE id = $1`, params);
       // Same guest-visible wording as a staff status change, so the tracking
       // page reads identically however the ticket moved.
@@ -208,23 +237,29 @@ async function applyTicket(t, submissionId, taxonomy) {
     }
 
     // -- triage: department / category / urgency, mirrored from RAP --
+    // Diff against the previous MIRROR row, not the local submission: RAP's
+    // decisions apply when RAP changes its mind, but the mirror doesn't fight
+    // local after-hours reroutes by re-asserting the same value every tick.
     const dept = matchDepartment(t.department, taxonomy.departments);
     const cat = matchCategory(t.category, taxonomy.categories);
-    const urgency = SEVERITY_URGENCY[t.severity] || null;
+    const urgency = mapGet(SEVERITY_URGENCY, t.severity) || null;
     const triageSets = [];
     const triageParams = [submissionId];
     const triageBits = [];
-    if (dept && dept.id !== sub.department_id) {
+    if (dept && dept.id !== sub.department_id && (!prev || t.department !== prev.department)) {
       triageSets.push(`department_id = $${triageParams.push(dept.id)}`);
       triageBits.push(`routed to ${dept.name}`);
+      triagedFirstTime = !sub.department_id;
+      triageMoved = true;
     }
-    if (cat && cat.id !== sub.category_id) {
+    if (cat && cat.id !== sub.category_id && (!prev || t.category !== prev.category)) {
       triageSets.push(`category_id = $${triageParams.push(cat.id)}`);
       triageBits.push(`category ${t.category.replace(/_/g, ' ')}`);
     }
     if (urgency && urgency !== sub.urgency && (!prev || t.severity !== prev.severity)) {
       triageSets.push(`urgency = $${triageParams.push(urgency)}`);
       triageBits.push(`severity ${t.severity}/5 → urgency ${urgency}`);
+      triageMoved = true;
     }
     if (t.summary && !sub.ai_summary) {
       triageSets.push(`ai_summary = $${triageParams.push(t.summary.slice(0, 200))}`);
@@ -242,18 +277,31 @@ async function applyTicket(t, submissionId, taxonomy) {
       changed = true;
     }
 
-    // -- history: mirror new entries (RAP history is append-only) --
-    const known = prev ? prev.history_count : 0;
-    const fresh = t.history.slice(known, known + HISTORY_BATCH_MAX);
-    for (const h of fresh) {
-      await client.query(
-        `INSERT INTO submission_events (submission_id, kind, detail, is_public, created_at)
-         VALUES ($1,'rap',$2,false,coalesce($3, now()))`,
-        [submissionId, `RAP: ${h.text.slice(0, 500)}`, h.at]);
+    // -- history: mirror entries we haven't stored yet. Content-keyed, not
+    // positional — the export's ordering is unknown, and a positional diff
+    // against a newest-first or capped list would duplicate old entries and
+    // drop new ones. (Identical repeated texts collapse; acceptable.)
+    let freshCount = 0;
+    if (t.history.length && (!prev || t.history.length !== prev.history_count || !prev.history_count)) {
+      const { rows: seen } = await client.query(
+        `SELECT detail FROM submission_events WHERE submission_id = $1 AND kind = 'rap'`, [submissionId]);
+      const seenSet = new Set(seen.map(r => r.detail));
+      const fresh = t.history
+        .map(h => ({ ...h, detail: `RAP: ${h.text.slice(0, 500)}` }))
+        .filter(h => !seenSet.has(h.detail))
+        .slice(0, HISTORY_BATCH_MAX);
+      for (const h of fresh) {
+        await client.query(
+          `INSERT INTO submission_events (submission_id, kind, detail, is_public, created_at)
+           VALUES ($1,'rap',$2,false,coalesce($3, now()))`,
+          [submissionId, h.detail, clampTs(h.at)]);
+      }
+      freshCount = fresh.length;
+      if (freshCount) changed = true;
     }
-    if (fresh.length) changed = true;
 
     // -- upsert the mirror row (cache + change detector) --
+    const rawStr = JSON.stringify(t.raw ?? null);
     await client.query(
       `INSERT INTO rap_mirror (submission_id, rap_ticket_id, status, department, category,
                                severity, mood, building, summary, history_count, raw, rap_updated_at, synced_at)
@@ -266,8 +314,8 @@ async function applyTicket(t, submissionId, taxonomy) {
          history_count = EXCLUDED.history_count, raw = EXCLUDED.raw,
          rap_updated_at = EXCLUDED.rap_updated_at, synced_at = now()`,
       [submissionId, t.id, t.status, t.department, t.category, t.severity, t.mood,
-       t.building.slice(0, 120), t.summary.slice(0, 500), known + fresh.length,
-       JSON.stringify(t.raw ?? null), t.updatedAt]);
+       t.building.slice(0, 120), t.summary.slice(0, 500), t.history.length,
+       rawStr.length > RAW_MAX_BYTES ? null : rawStr, t.updatedAt]);
 
     await client.query('COMMIT');
   } catch (err) {
@@ -277,22 +325,31 @@ async function applyTicket(t, submissionId, taxonomy) {
     client.release();
   }
 
-  // Outside the transaction, same as the staff PATCH path: a routing or
-  // urgency change re-derives the SLA due dates.
-  if (changed) await recomputeDueDates(submissionId).catch(() => {});
+  // Outside the transaction, mirroring the staff paths exactly:
+  //  - RAP's FIRST routing of a previously unrouted note runs the full
+  //    hours-aware routing (hold / reroute / on-call / urgent notify) that the
+  //    local classifier used to trigger — a 2am safety report must still page.
+  //  - a later dept/urgency change re-derives due dates like an admin PATCH.
+  //  - status/history-only changes leave routing alone (recomputeDueDates
+  //    clears held_until, so calling it gratuitously would wreck holds).
+  if (triagedFirstTime) await routeSubmission(submissionId);
+  else if (triageMoved) await recomputeDueDates(submissionId).catch(() => {});
   return changed;
 }
 
 // ---------- the tick ----------
 
-async function fetchExport() {
-  const resp = await fetch(EXPORT_URL, {
-    headers: { 'Authorization': `Bearer ${EXPORT_KEY}`, 'Accept': 'application/json' },
-    signal: AbortSignal.timeout(15000),
-  });
-  const bodyText = await resp.text();
+async function fetchExport({ useEtag = false } = {}) {
+  const headers = { 'Authorization': `Bearer ${EXPORT_KEY}`, 'Accept': 'application/json' };
+  if (useEtag && etag) headers['If-None-Match'] = etag;
+  const resp = await fetch(EXPORT_URL, { headers, signal: AbortSignal.timeout(15000) });
+  const len = parseInt(resp.headers.get('content-length'), 10);
+  if (len > BODY_MAX_BYTES) throw new Error(`export body too large (${len} bytes)`);
+  const bodyText = resp.status === 304 ? '' : await resp.text();
+  if (bodyText.length > BODY_MAX_BYTES) throw new Error(`export body too large (${bodyText.length} chars)`);
   let body = null;
   try { body = JSON.parse(bodyText); } catch { /* html/error pages stay null */ }
+  if (resp.ok && resp.headers.get('etag')) etag = resp.headers.get('etag');
   return { resp, body, bodyText };
 }
 
@@ -312,7 +369,7 @@ async function sync() {
 
     let resp, body;
     try {
-      ({ resp, body } = await fetchExport());
+      ({ resp, body } = await fetchExport({ useEtag: true }));
     } catch (err) {
       state.lastError = `network: ${err.message}`;
       state.lastHttpStatus = null;
@@ -320,6 +377,11 @@ async function sync() {
     }
     state.lastHttpStatus = resp.status;
 
+    if (resp.status === 304) {   // nothing changed on the board since last tick
+      state.lastSyncAt = new Date();
+      state.lastError = '';
+      return;
+    }
     if (resp.status === 429) {
       pausedUntil = Date.now() + RATE_LIMIT_PAUSE_MS;
       console.warn('[rap-mirror] rate-limited (429) — pausing');
@@ -344,7 +406,7 @@ async function sync() {
     }
 
     const tickets = [];
-    for (const rawTicket of list) {
+    for (const rawTicket of list.slice(0, TICKETS_MAX)) {
       const t = parseTicket(rawTicket);
       if (t) { t.raw = rawTicket; tickets.push(t); }
     }
@@ -354,44 +416,32 @@ async function sync() {
       return;
     }
 
-    // Primary join: the ticket ids RAP returned at delivery time.
+    // The only join: the ticket ids RAP returned at delivery time (contract:
+    // the 201 always carries ticket_id). Nothing inside a ticket may choose
+    // which submission it binds to — that would let any RAP-side submitter
+    // steer someone else's local record.
     const { rows: links } = await pool.query(
       `SELECT submission_id, rap_ticket_id FROM rap_queue WHERE rap_ticket_id IS NOT NULL`);
     const byTicketId = new Map(links.map(l => [Number(l.rap_ticket_id), l.submission_id]));
 
-    // Fallback join: RAP echoing back our MW-XXXXXX code (it preserves the
-    // extra payload keys). Backfill rap_queue so next tick is a direct hit.
-    const orphans = tickets.filter(t => !byTicketId.has(t.id) && /^MW-[A-Z0-9]+$/.test(t.code));
-    if (orphans.length) {
-      const { rows: byCode } = await pool.query(
-        `SELECT id, public_code FROM submissions WHERE public_code = ANY($1)`,
-        [orphans.map(t => t.code)]);
-      const codeMap = new Map(byCode.map(r => [r.public_code, r.id]));
-      for (const t of orphans) {
-        const sid = codeMap.get(t.code);
-        if (sid == null) continue;
-        byTicketId.set(t.id, sid);
-        await pool.query(
-          `UPDATE rap_queue SET rap_ticket_id = $2 WHERE submission_id = $1 AND rap_ticket_id IS NULL`,
-          [sid, t.id]);
-      }
-    }
-
     const taxonomy = await loadLocalTaxonomy();
-    let matched = 0, changedCount = 0;
+    const appliedSids = new Set();   // one applied ticket per submission per tick
+    let matched = 0, changedCount = 0, failedCount = 0;
     for (const t of tickets) {
       const sid = byTicketId.get(t.id);
-      if (sid == null) continue;    // a RAP ticket from some other source
+      if (sid == null || appliedSids.has(sid)) continue;   // foreign ticket, or a duplicate claim
+      appliedSids.add(sid);
       matched++;
       try {
         if (await applyTicket(t, sid, taxonomy)) changedCount++;
       } catch (err) {
+        failedCount++;
         console.error(`[rap-mirror] failed to apply ticket #${t.id} → submission ${sid}: ${err.message}`);
       }
     }
 
     state.lastSyncAt = new Date();
-    state.lastError = '';
+    state.lastError = failedCount ? `${failedCount} ticket(s) failed to apply — see backend logs` : '';
     state.lastMatchedCount = matched;
     state.lastChangedCount = changedCount;
     if (changedCount) console.log(`[rap-mirror] synced ${matched} linked tickets, ${changedCount} updated`);
@@ -463,11 +513,13 @@ async function probeMirror() {
   const parsed = list.map(parseTicket).filter(Boolean);
   const { rows: links } = await pool.query(
     `SELECT count(*)::int AS n FROM rap_queue WHERE rap_ticket_id IS NOT NULL`);
-  if (haltedReason && parsed.length) {
+  // Any 2xx with a recognizable list proves the auth/endpoint problem is gone —
+  // an empty board (fresh season) must still clear a halt and resume the loop.
+  if (haltedReason) {
     haltedReason = '';
     console.log('[rap-mirror] probe succeeded — halt cleared, resuming sync');
   }
-  if (parsed.length) sync();    // fire-and-forget: reflect the probe immediately
+  sync();    // fire-and-forget: reflect the probe immediately
   return {
     ok: true,
     httpStatus: resp.status,

@@ -161,10 +161,13 @@ router.post('/submissions', rateLimit({ windowMs: 5 * 60 * 1000, max: 12 }), upl
   // waits on any of it; routing runs even with AI triage off so the SLA clock
   // and after-hours policies always apply.
   const pipeline = async () => {
-    if (rapMirrorOwnsTriage(settings)) {
+    const rapOwnsTriage = rapMirrorOwnsTriage(settings);
+    if (rapOwnsTriage) {
       // RAP triages every forwarded note itself and the mirror syncs its
       // verdict back — a second local triage would double-spend and disagree.
-      // The note reads "Untriaged" until RAP's routing lands.
+      // The note reads "Untriaged" until RAP's routing lands; when it does,
+      // the mirror runs the full hours-aware routing pass. (If the mirror is
+      // halted, rapMirrorOwnsTriage is false and local triage takes over.)
       await pool.query(
         `INSERT INTO submission_events (submission_id, kind, detail) VALUES ($1,'ai',$2)`,
         [id, 'Triage delegated to the RAP board — its routing and severity sync back automatically']);
@@ -177,7 +180,7 @@ router.post('/submissions', rateLimit({ windowMs: 5 * 60 * 1000, max: 12 }), upl
         guestChoseType,
       });
     }
-    await routeSubmission(id);
+    await routeSubmission(id, { awaitingRap: rapOwnsTriage });
     await forwardSubmission(id);
   };
   pipeline().catch(err => console.error('[pipeline]', err.message));

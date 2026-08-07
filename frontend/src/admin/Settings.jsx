@@ -32,7 +32,7 @@ const FEATURE_DEFS = [
   { key: 'qrGenerator', label: 'QR code generator', desc: 'Print-ready QR cards per location on the Locations & QR page.' },
   { key: 'visitTracking', label: 'Visit tracking', desc: 'Counts guest-form opens by location and source (QR / kiosk / web) so the dashboard shows whether the QR cards are actually being scanned. No cookies, nothing personal stored.' },
   { key: 'rapForward', label: 'RAP hand-off (central intake)', desc: 'Queue every new note and deliver its raw text to the central Report-A-Problem system, which runs its own triage and ticketing. Needs RAP_INGEST_KEY on the server (.env); delivery retries automatically until it lands.', extra: 'rap' },
-  { key: 'rapMirror', label: 'RAP mirror (status & triage sync)', desc: 'Pull each forwarded ticket’s status, routing, severity, guest mood and history back from the RAP board, so this inbox always shows exactly what their team sees. While it’s on, local AI triage stands down — RAP’s triage is the source of truth.', extra: 'rapMirror' },
+  { key: 'rapMirror', label: 'RAP mirror (status & triage sync)', desc: 'Pull each forwarded ticket’s status, routing, severity, guest mood and history back from the RAP board, so this inbox always shows exactly what their team sees. While this and the RAP hand-off are both on (with a key configured and the mirror healthy), local AI triage stands down — RAP’s triage is the source of truth. If the mirror can’t reach the board, local triage takes over automatically.', extra: 'rapMirror' },
   { key: 'emailForward', label: 'Email notifications', desc: 'Email the address below for every new submission. Needs SMTP configured on the server (see .env); without it, notifications are logged on the timeline instead.', extra: 'email' },
 ];
 
@@ -497,9 +497,15 @@ export default function Settings() {
                           <button className="btn btn-ghost btn-small" disabled={mirrorTesting}
                             onClick={async () => {
                               setMirrorTesting(true);
+                              setMirrorTest(null);
                               try { setMirrorTest(await api.rapMirrorTest()); }
                               catch (err) { setMirrorTest({ ok: false, error: err.message }); }
-                              finally { setMirrorTesting(false); }
+                              finally {
+                                setMirrorTesting(false);
+                                // The probe can clear a halt and kick a sync server-side —
+                                // refresh the readout so the banner tells the truth.
+                                api.rapStatus().then(setRap).catch(() => {});
+                              }
                             }}>
                             {mirrorTesting ? 'Testing…' : '⟳ Test mirror'}
                           </button>

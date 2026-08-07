@@ -144,13 +144,15 @@ router.get('/submissions', requirePerm(...VIEW_SUBMISSIONS), aw(async (req, res)
            s.created_at, s.first_response_at, s.resolved_at,
            c.name AS category, c.emoji AS category_emoji, c.slug AS category_slug,
            d.name AS department, l.name AS location, s.location_text,
-           rm.rap_ticket_id, rm.severity AS rap_severity, rm.mood AS rap_mood,
+           coalesce(rm.rap_ticket_id, rq.rap_ticket_id) AS rap_ticket_id,
+           rm.severity AS rap_severity, rm.mood AS rap_mood,
            count(*) OVER()::int AS total_rows
       FROM submissions s
       LEFT JOIN categories c ON c.id = s.category_id
       LEFT JOIN departments d ON d.id = s.department_id
       LEFT JOIN locations l ON l.id = s.location_id
       LEFT JOIN rap_mirror rm ON rm.submission_id = s.id
+      LEFT JOIN rap_queue rq ON rq.submission_id = s.id
       ${where.length ? 'WHERE ' + where.join(' AND ') : ''}
      ORDER BY (s.urgency = 'safety' AND s.status IN ('new','in_progress')) DESC, s.created_at ${order}
      LIMIT $${i++} OFFSET $${i++}`;
@@ -185,7 +187,8 @@ router.get('/submissions/:id', requirePerm(...VIEW_SUBMISSIONS), aw(async (req, 
   const { rows } = await pool.query(
     `SELECT s.*, c.name AS category, c.emoji AS category_emoji, d.name AS department, l.name AS location,
             au.display_name AS assigned_name, rd.name AS rerouted_from,
-            rm.rap_ticket_id, rm.severity AS rap_severity, rm.mood AS rap_mood,
+            coalesce(rm.rap_ticket_id, rq.rap_ticket_id) AS rap_ticket_id,
+            rm.severity AS rap_severity, rm.mood AS rap_mood,
             rm.building AS rap_building, rm.synced_at AS rap_synced_at
        FROM submissions s
        LEFT JOIN categories c ON c.id = s.category_id
@@ -194,6 +197,7 @@ router.get('/submissions/:id', requirePerm(...VIEW_SUBMISSIONS), aw(async (req, 
        LEFT JOIN users au ON au.id = s.assigned_user_id
        LEFT JOIN departments rd ON rd.id = s.rerouted_from_department_id
        LEFT JOIN rap_mirror rm ON rm.submission_id = s.id
+       LEFT JOIN rap_queue rq ON rq.submission_id = s.id
       WHERE s.id = $1`, [id]);
   if (!rows.length || !inDeptScope(req.actor, 'submissions.view_all', rows[0].department_id)) {
     return res.status(404).json({ error: 'Not found' });

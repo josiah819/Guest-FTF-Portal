@@ -250,7 +250,8 @@ export default function Submissions() {
           <h1 className="display">Submissions</h1>
           <div className="sub">
             {total} matching · safety concerns float to the top · updates happen on the RAP board
-            {rap?.mirror?.enabled && rap?.mirror?.keyConfigured ? ' and mirror back here automatically' : ''}
+            {rap?.mirror?.enabled && rap?.mirror?.keyConfigured && !rap?.mirror?.halted ? ' and mirror back here automatically' : ''}
+            {rap?.mirror?.halted ? ' — mirror paused, see Settings' : ''}
           </div>
         </div>
         {settings?.features?.csvExport && actor.can('export.csv') && (

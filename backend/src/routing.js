@@ -80,7 +80,7 @@ async function routeEvent(submissionId, detail, isPublic = false) {
     [submissionId, detail, isPublic]);
 }
 
-async function routeSubmission(submissionId) {
+async function routeSubmission(submissionId, opts = {}) {
   try {
     const settings = await getSettings();
     const tz = settings.general?.timezone || 'America/Toronto';
@@ -101,7 +101,9 @@ async function routeSubmission(submissionId) {
       await pool.query(
         `UPDATE submissions SET sla_start_at = $1, first_response_due_at = $2, resolution_due_at = $3 WHERE id = $4`,
         [now, addHours(now, t.resp), addHours(now, t.reso), submissionId]);
-      await routeEvent(submissionId, 'No department matched — needs manual triage');
+      await routeEvent(submissionId, opts.awaitingRap
+        ? 'Awaiting RAP triage — SLA clock started with the global targets'
+        : 'No department matched — needs manual triage');
       return;
     }
 
