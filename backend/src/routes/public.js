@@ -8,6 +8,7 @@ const { classifySubmission } = require('../classify');
 const { routeSubmission } = require('../routing');
 const { forwardSubmission } = require('../forward');
 const { enqueueRap } = require('../rap');
+const { rapMirrorOwnsTriage } = require('../rapMirror');
 
 const router = express.Router();
 
@@ -160,7 +161,14 @@ router.post('/submissions', rateLimit({ windowMs: 5 * 60 * 1000, max: 12 }), upl
   // waits on any of it; routing runs even with AI triage off so the SLA clock
   // and after-hours policies always apply.
   const pipeline = async () => {
-    if (settings.features.aiCategorization) {
+    if (rapMirrorOwnsTriage(settings)) {
+      // RAP triages every forwarded note itself and the mirror syncs its
+      // verdict back — a second local triage would double-spend and disagree.
+      // The note reads "Untriaged" until RAP's routing lands.
+      await pool.query(
+        `INSERT INTO submission_events (submission_id, kind, detail) VALUES ($1,'ai',$2)`,
+        [id, 'Triage delegated to the RAP board — its routing and severity sync back automatically']);
+    } else if (settings.features.aiCategorization) {
       await classifySubmission(id, {
         message, type,
         locationName: location?.name,

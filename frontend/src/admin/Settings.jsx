@@ -32,6 +32,7 @@ const FEATURE_DEFS = [
   { key: 'qrGenerator', label: 'QR code generator', desc: 'Print-ready QR cards per location on the Locations & QR page.' },
   { key: 'visitTracking', label: 'Visit tracking', desc: 'Counts guest-form opens by location and source (QR / kiosk / web) so the dashboard shows whether the QR cards are actually being scanned. No cookies, nothing personal stored.' },
   { key: 'rapForward', label: 'RAP hand-off (central intake)', desc: 'Queue every new note and deliver its raw text to the central Report-A-Problem system, which runs its own triage and ticketing. Needs RAP_INGEST_KEY on the server (.env); delivery retries automatically until it lands.', extra: 'rap' },
+  { key: 'rapMirror', label: 'RAP mirror (status & triage sync)', desc: 'Pull each forwarded ticket’s status, routing, severity, guest mood and history back from the RAP board, so this inbox always shows exactly what their team sees. While it’s on, local AI triage stands down — RAP’s triage is the source of truth.', extra: 'rapMirror' },
   { key: 'emailForward', label: 'Email notifications', desc: 'Email the address below for every new submission. Needs SMTP configured on the server (see .env); without it, notifications are logged on the timeline instead.', extra: 'email' },
 ];
 
@@ -297,6 +298,8 @@ export default function Settings() {
 
   const [assignees, setAssignees] = useState([]);
   const [rap, setRap] = useState(null);
+  const [mirrorTest, setMirrorTest] = useState(null);
+  const [mirrorTesting, setMirrorTesting] = useState(false);
 
   useEffect(() => {
     api.settings().then(d => { setS(d.settings); setAiKey(d.aiKeyPresent); });
@@ -474,6 +477,41 @@ export default function Settings() {
                       {rap.lastSentAt && <> · last delivered {new Date(rap.lastSentAt).toLocaleString()}</>}
                       {rap.halted && <><br /><b style={{ color: 'var(--orange)' }}>Delivery halted ({rap.halted}) — fix RAP_INGEST_KEY and restart the backend; queued notes are safe.</b></>}
                       {!rap.halted && rap.lastError && <><br />Last error: {rap.lastError}</>}
+                    </>}
+                  </div>
+                )}
+                {f.extra === 'rapMirror' && s.features.rapMirror !== false && (
+                  <div className="hint" style={{ marginTop: 10 }}>
+                    {!rap?.mirror ? 'Checking mirror status…' : <>
+                      {rap.mirror.keyConfigured
+                        ? <>Key configured ✓ · reads {rap.mirror.endpoint}</>
+                        : <>No key on the server — set RAP_EXPORT_KEY (or reuse RAP_INGEST_KEY) in .env to start mirroring.</>}
+                      <br />
+                      {rap.mirror.linked} tickets linked
+                      {rap.mirror.lastSyncAt && <> · last sync {new Date(rap.mirror.lastSyncAt).toLocaleString()}
+                        {rap.mirror.lastMatchedCount != null && <> ({rap.mirror.lastMatchedCount} of {rap.mirror.lastTicketCount} board tickets are ours)</>}</>}
+                      {rap.mirror.halted && <><br /><b style={{ color: 'var(--orange)' }}>Mirror halted ({rap.mirror.halted}) — the key likely isn’t authorized to read; ask the RAP operator, then hit Test mirror.</b></>}
+                      {!rap.mirror.halted && rap.mirror.lastError && <><br />Last error: {rap.mirror.lastError}</>}
+                      {actor.can('settings.manage') && (
+                        <div style={{ marginTop: 8 }}>
+                          <button className="btn btn-ghost btn-small" disabled={mirrorTesting}
+                            onClick={async () => {
+                              setMirrorTesting(true);
+                              try { setMirrorTest(await api.rapMirrorTest()); }
+                              catch (err) { setMirrorTest({ ok: false, error: err.message }); }
+                              finally { setMirrorTesting(false); }
+                            }}>
+                            {mirrorTesting ? 'Testing…' : '⟳ Test mirror'}
+                          </button>
+                          {mirrorTest && (
+                            <span style={{ marginLeft: 8 }}>
+                              {mirrorTest.ok
+                                ? <>✓ {mirrorTest.ticketCount} tickets on the board · {mirrorTest.parsedCount} readable · {mirrorTest.linkedCount} linked to ours{mirrorTest.statuses?.length ? <> · statuses: {mirrorTest.statuses.join(', ')}</> : null}</>
+                                : <b style={{ color: 'var(--orange)' }}>✗ {mirrorTest.error}{mirrorTest.shape ? ` (response keys: ${[].concat(mirrorTest.shape).join(', ')})` : ''}</b>}
+                            </span>
+                          )}
+                        </div>
+                      )}
                     </>}
                   </div>
                 )}

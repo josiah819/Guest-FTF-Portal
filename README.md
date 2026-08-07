@@ -111,6 +111,34 @@ curl -sS -X POST https://rap.mwprogram.com/api/ingest \
 
 Demo-seed submissions never enter the queue — only real guest submissions are forwarded.
 
+## RAP mirror (status & triage, synced back)
+
+The hand-off is one half of the loop; the **mirror** is the other. Once a minute the
+backend polls RAP's export API (`GET /api/export`, bearer key) and applies every linked
+ticket's state to the local record:
+
+- **Status** — RAP's `open / in_progress / resolved` maps to the local
+  `new / in_progress / resolved`, with the same side effects a staff change would have
+  (first-response and resolved stamps, a public timeline entry), so the guest tracking
+  page, CSAT invite, dashboard and SLA metrics all follow along automatically.
+- **Triage** — RAP's department (Maintenance / Housekeeping / Kitchen / Program) and
+  category (🌡️ Temperature, 🚿 Plumbing, …) map onto the local taxonomy; severity 1–5
+  maps to urgency (5 = safety, 4 = high). Guest mood and severity show in the inbox,
+  and every ticket links straight to its page on the RAP board.
+- **History** — RAP's ticket history (routing decisions, staff notes) mirrors into the
+  submission timeline as 🔁 entries.
+- **No double triage** — while the mirror is active, the local AI triage stands down:
+  RAP already triages every forwarded note, so WoodsVoice just reflects its verdict.
+  Notes read "Untriaged" for the minute or two until RAP's routing lands. Turn the
+  mirror off (Settings → Features) to get local Haiku triage back.
+
+Tickets are matched by the `ticket_id` RAP returns at delivery time (with our
+`MW-XXXXXX` code as a fallback when RAP echoes it back). Tickets RAP receives from
+other sources are ignored. The mirror reuses `RAP_INGEST_KEY`; if the RAP operator
+issues a separate read key, set `RAP_EXPORT_KEY`. If the key isn't authorized for the
+export API the mirror halts and says so in **Settings → Features**, where a **Test
+mirror** button probes the endpoint and reports exactly what came back.
+
 ## Admin controls (Settings)
 
 - **Form fields** — every field (location, category picker, urgency, photo, name, email, phone, group) is `Off / Optional / Required`. Message is always required; the v2 default form is just message + name + photo.

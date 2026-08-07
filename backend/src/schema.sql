@@ -219,3 +219,26 @@ CREATE TABLE IF NOT EXISTS rap_queue (
 );
 
 CREATE INDEX IF NOT EXISTS idx_rap_queue_due ON rap_queue (next_attempt_at) WHERE status = 'pending';
+
+-- RAP mirror (rapMirror.js): the latest known state of each forwarded note's
+-- ticket on the central RAP board, pulled back by the mirror poller. One row
+-- per linked submission; status/routing changes detected against this row are
+-- applied to the submission itself, so this table is both cache and change
+-- detector. raw keeps RAP's full ticket object for debugging; history_count
+-- tracks how many RAP history entries are already mirrored into
+-- submission_events (RAP history is append-only).
+CREATE TABLE IF NOT EXISTS rap_mirror (
+  submission_id  INTEGER PRIMARY KEY REFERENCES submissions(id) ON DELETE CASCADE,
+  rap_ticket_id  BIGINT NOT NULL UNIQUE,
+  status         TEXT NOT NULL DEFAULT '',     -- RAP's own value: open | in_progress | resolved | …
+  department     TEXT NOT NULL DEFAULT '',     -- RAP's own labels, verbatim
+  category       TEXT NOT NULL DEFAULT '',
+  severity       INTEGER,                      -- 1..5 per RAP's triage
+  mood           INTEGER,                      -- 1 (happy) .. 5 (extremely upset)
+  building       TEXT NOT NULL DEFAULT '',
+  summary        TEXT NOT NULL DEFAULT '',
+  history_count  INTEGER NOT NULL DEFAULT 0,
+  raw            JSONB,
+  rap_updated_at TIMESTAMPTZ,
+  synced_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+);

@@ -41,6 +41,15 @@ const DEPT_KNOWN = {
 };
 const DEPT_CYCLE = ['#2A78D6', '#EB6834', '#1BAF7A', '#EDA100', '#7C5CD6', '#0E9CAD', '#D64F9E'];
 
+// RAP's guest-mood scale runs 1 (delighted) → 5 (extremely upset).
+const MOOD = {
+  1: ['😊', 'Delighted'],
+  2: ['🙂', 'Content'],
+  3: ['😐', 'Neutral'],
+  4: ['😠', 'Upset'],
+  5: ['😡', 'Extremely upset'],
+};
+
 function timeAgo(date) {
   const s = (Date.now() - new Date(date).getTime()) / 1000;
   if (s < 3600) return `${Math.max(1, Math.floor(s / 60))}m ago`;
@@ -70,7 +79,7 @@ function fmtWhen(ts) {
   return new Date(ts).toLocaleString('en-CA', { weekday: 'short', hour: 'numeric', minute: '2-digit', month: 'short', day: 'numeric' });
 }
 
-function Drawer({ id, onClose }) {
+function Drawer({ id, onClose, boardBase }) {
   const [data, setData] = useState(null);
 
   useEffect(() => {
@@ -119,6 +128,20 @@ function Drawer({ id, onClose }) {
         )}
 
         <dl className="kv">
+          {s.rap_ticket_id && (
+            <>
+              <dt>RAP ticket</dt>
+              <dd>
+                #{s.rap_ticket_id}
+                {s.rap_mood && MOOD[s.rap_mood] && <> · {MOOD[s.rap_mood][0]} {MOOD[s.rap_mood][1]}</>}
+                {s.rap_severity && <> · severity {s.rap_severity}/5</>}
+                {boardBase && (
+                  <> · <a href={`${boardBase}/tickets/${s.rap_ticket_id}`} target="_blank" rel="noreferrer">open on the RAP board ↗</a></>
+                )}
+                {s.rap_synced_at && <span className="muted"> · synced {timeAgo(s.rap_synced_at)}</span>}
+              </dd>
+            </>
+          )}
           <dt>Location</dt><dd>{s.location || s.location_text || '—'}</dd>
           <dt>Department</dt><dd>{s.department || 'Untriaged'}</dd>
           <dt>Assigned to</dt><dd>{s.assigned_name || 'Nobody'}</dd>
@@ -133,7 +156,7 @@ function Drawer({ id, onClose }) {
           {data.events.map(ev => (
             <li key={ev.id}>
               <div style={{ fontSize: 13.5, fontWeight: ev.kind === 'note' ? 400 : 600 }}>
-                {ev.kind === 'note' ? <>📝 {ev.detail}</> : ev.detail}
+                {ev.kind === 'note' ? <>📝 {ev.detail}</> : ev.kind === 'rap' ? <>🔁 {ev.detail}</> : ev.detail}
                 {ev.admin_name && <span className="muted"> — {ev.admin_name}</span>}
               </div>
               <div className="when">{new Date(ev.created_at).toLocaleString('en-CA', { dateStyle: 'medium', timeStyle: 'short' })}</div>
@@ -158,6 +181,7 @@ export default function Submissions() {
   const [categories, setCategories] = useState([]);
   const [locations, setLocations] = useState([]);
   const [settings, setSettings] = useState(null);
+  const [rap, setRap] = useState(null);
 
   const filters = {
     status: searchParams.get('status') || 'open',
@@ -181,6 +205,7 @@ export default function Submissions() {
     api.catalog('categories').then(d => setCategories(d.rows));
     api.catalog('locations').then(d => setLocations(d.rows));
     api.settings().then(d => setSettings(d.settings));
+    api.rapStatus().then(setRap).catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -223,7 +248,10 @@ export default function Submissions() {
         <div>
           <div className="kicker" style={{ color: 'var(--orange)' }}>Inbox</div>
           <h1 className="display">Submissions</h1>
-          <div className="sub">{total} matching · safety concerns float to the top · updates happen on the RAP board</div>
+          <div className="sub">
+            {total} matching · safety concerns float to the top · updates happen on the RAP board
+            {rap?.mirror?.enabled && rap?.mirror?.keyConfigured ? ' and mirror back here automatically' : ''}
+          </div>
         </div>
         {settings?.features?.csvExport && actor.can('export.csv') && (
           <div className="actions">
@@ -319,6 +347,9 @@ export default function Submissions() {
                     <span className="rp-rowright">
                       {r.type === 'compliment' && <span className="rp-mood" title="Compliment">💚</span>}
                       {r.photo_path && <span className="rp-mood" title="Photo attached">📷</span>}
+                      {r.rap_mood && MOOD[r.rap_mood] && (
+                        <span className="rp-mood" title={`Guest mood: ${MOOD[r.rap_mood][1]} (${r.rap_mood}/5)`}>{MOOD[r.rap_mood][0]}</span>
+                      )}
                       {(r.urgency === 'safety' || r.urgency === 'high') && (
                         <span className={`rp-chip u-${r.urgency}`}>{r.urgency}</span>
                       )}
@@ -330,6 +361,7 @@ export default function Submissions() {
                   {!expanded && <p className="rp-preview">{r.ai_summary || r.message}</p>}
                   <p className="rp-meta">
                     {r.public_code} · received {fmtReceived(r.created_at)}
+                    {r.rap_ticket_id ? ` · RAP #${r.rap_ticket_id}` : ''}
                     {r.guest_name ? ` · ${r.guest_name}` : ''}{r.group_name ? ` (${r.group_name})` : ''}
                   </p>
                 </button>
@@ -338,6 +370,13 @@ export default function Submissions() {
                     <div className="rp-detail">
                       <blockquote>“{r.message}”</blockquote>
                       {r.ai_summary && <p className="rp-ai">✨ <strong>AI summary:</strong> {r.ai_summary}</p>}
+                      {(r.rap_mood || r.rap_severity) && (
+                        <p className="rp-subline">
+                          {r.rap_mood && MOOD[r.rap_mood] && <>{MOOD[r.rap_mood][0]} Guest mood {MOOD[r.rap_mood][1]} ({r.rap_mood}/5)</>}
+                          {r.rap_mood && r.rap_severity ? ' · ' : ''}
+                          {r.rap_severity && <>Severity {r.rap_severity}/5</>}
+                        </p>
+                      )}
                       <p className="rp-subline">
                         {r.guest_name || 'Anonymous'}{r.group_name ? ` · ${r.group_name}` : ''} · via {r.source.toUpperCase()}
                         {r.rating ? ` · rated ${'★'.repeat(r.rating)}` : ''}
@@ -345,6 +384,12 @@ export default function Submissions() {
                       <button className="rp-btn rp-openfull" onClick={() => setOpenId(r.id)}>
                         Full ticket · notes & history →
                       </button>
+                      {r.rap_ticket_id && rap?.mirror?.boardBase && (
+                        <a className="rp-btn" style={{ marginLeft: 8 }} href={`${rap.mirror.boardBase}/tickets/${r.rap_ticket_id}`}
+                          target="_blank" rel="noreferrer">
+                          Open on the RAP board ↗
+                        </a>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -364,7 +409,7 @@ export default function Submissions() {
 
       <p className="rp-foot">Reports arrive via the QR signs posted at each location</p>
 
-      {openId && <Drawer id={openId} onClose={() => setOpenId(null)} />}
+      {openId && <Drawer id={openId} onClose={() => setOpenId(null)} boardBase={rap?.mirror?.boardBase} />}
     </div>
   );
 }

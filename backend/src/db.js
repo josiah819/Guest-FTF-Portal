@@ -55,6 +55,7 @@ const DEFAULT_SETTINGS = {
     qrGenerator: true,
     visitTracking: true,      // count guest-form opens (by location + source) for the dashboard
     rapForward: true,         // queue each note for the central RAP intake API (delivers once RAP_INGEST_KEY is set)
+    rapMirror: true,          // pull status/triage/history back from the RAP board; local AI triage stands down while on
     emailForward: false,      // notify integrations.notifyEmail per submission (needs SMTP env)
   },
   sla: {
