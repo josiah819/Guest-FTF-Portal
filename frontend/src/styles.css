@@ -1396,6 +1396,11 @@ textarea.input { min-height: 110px; resize: vertical; }
   text-decoration: underline;
 }
 
+.link-danger:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
 /* ---------- content tab ---------- */
 
 .content-sec__head {

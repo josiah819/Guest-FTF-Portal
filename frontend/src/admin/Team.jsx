@@ -78,6 +78,16 @@ function UsersCard({ users, roles, departments, reload, setSecret, setToast }) {
     }
   }
 
+  async function removeUser(u) {
+    if (!window.confirm(`Delete @${u.username}? They can no longer sign in, and their name comes off past ticket history. This can’t be undone.`)) return;
+    try {
+      await api.deleteUser(u.id);
+      reload();
+    } catch (err) {
+      setToast(err.message);
+    }
+  }
+
   return (
     <div className="card">
       <h3>Users</h3>
@@ -124,6 +134,8 @@ function UsersCard({ users, roles, departments, reload, setSecret, setToast }) {
             <button className={`switch${u.active ? ' on' : ''}`} title={u.active ? 'Active' : 'Deactivated'}
               disabled={u.id === actor.user.id}
               onClick={() => update(u.id, { active: !u.active })} aria-label="Toggle active" />
+            <button className="link-danger" disabled={u.id === actor.user.id}
+              onClick={() => removeUser(u)}>delete</button>
           </div>
           <div className="team-row__sub">
             <input className="input" style={{ width: 240 }} placeholder="email" type="email" defaultValue={u.email}

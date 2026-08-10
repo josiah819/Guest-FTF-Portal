@@ -54,6 +54,7 @@ export const api = {
   createUser: (body) => request('/api/admin/users', { method: 'POST', body, auth: true }),
   updateUser: (id, body) => request(`/api/admin/users/${id}`, { method: 'PATCH', body, auth: true }),
   resetUserPassword: (id) => request(`/api/admin/users/${id}/reset-password`, { method: 'POST', auth: true }),
+  deleteUser: (id) => request(`/api/admin/users/${id}`, { method: 'DELETE', auth: true }),
   roles: () => request('/api/admin/roles', { auth: true }),
   createRole: (name) => request('/api/admin/roles', { method: 'POST', body: { name }, auth: true }),
   renameRole: (id, name) => request(`/api/admin/roles/${id}`, { method: 'PATCH', body: { name }, auth: true }),

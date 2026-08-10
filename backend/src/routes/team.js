@@ -143,6 +143,26 @@ router.post('/users/:id/reset-password', gate, aw(async (req, res) => {
   res.json({ tempPassword: password });
 }));
 
+router.delete('/users/:id', gate, aw(async (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  const { rows: existing } = await pool.query('SELECT * FROM users WHERE id = $1', [id]);
+  if (!existing.length) return res.status(404).json({ error: 'Not found' });
+  if (id === req.actor.id) return res.status(400).json({ error: 'You can’t delete your own account.' });
+  const user = existing[0];
+
+  // Lockout guard: deleting the last users.manage holder would strand the team.
+  const isHolder = user.active && await roleHasUsersManage(user.role_id);
+  if (isHolder && (await otherKeyHolders({ excludeUserId: id })) === 0) {
+    return res.status(400).json({ error: 'That would leave nobody who can manage the team. Give another user “Manage team & roles” first.' });
+  }
+
+  // FKs handle the references: department memberships cascade; ticket history
+  // and assignments keep their rows with the user set to NULL.
+  await pool.query('DELETE FROM users WHERE id = $1', [id]);
+  bustActorCache();
+  res.json({ ok: true });
+}));
+
 // ---------- roles ----------
 
 router.get('/roles', gate, aw(async (req, res) => {
