@@ -43,4 +43,17 @@ function rateLimit({ windowMs, max, message }) {
   };
 }
 
-module.exports = { newPublicCode, newFileName, aw, clampStr, rateLimit };
+// Absolute origin for links that leave the app (invite emails, RAP hand-offs).
+// PUBLIC_BASE_URL is authoritative; falling back to the request's own origin
+// means trusting the Host header, so it only stands in when the host is a
+// plain hostname — a crafted Host must never become a link in an email.
+const CONFIGURED_BASE = String(process.env.PUBLIC_BASE_URL || '').trim().replace(/\/+$/, '');
+const PLAIN_HOST = /^[a-z0-9.-]+(:\d{1,5})?$/i;
+
+function publicOrigin(req) {
+  if (CONFIGURED_BASE) return CONFIGURED_BASE;
+  const host = String(req.get('host') || '');
+  return PLAIN_HOST.test(host) ? `${req.protocol}://${host}` : '';
+}
+
+module.exports = { newPublicCode, newFileName, aw, clampStr, rateLimit, publicOrigin };

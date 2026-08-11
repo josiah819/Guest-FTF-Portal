@@ -45,6 +45,34 @@ ALTER TABLE users ADD COLUMN IF NOT EXISTS email TEXT NOT NULL DEFAULT '';
 ALTER TABLE users ADD COLUMN IF NOT EXISTS role_id INTEGER REFERENCES roles(id) ON DELETE SET NULL;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS active BOOLEAN NOT NULL DEFAULT true;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS must_change_password BOOLEAN NOT NULL DEFAULT false;
+-- v3: invite-based onboarding + Google sign-in. Google-only accounts have no
+-- password; google_sub is Google's stable subject id, linked on first sign-in.
+ALTER TABLE users ALTER COLUMN password_hash DROP NOT NULL;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS google_sub TEXT;
+CREATE UNIQUE INDEX IF NOT EXISTS users_google_sub_key ON users (google_sub) WHERE google_sub IS NOT NULL;
+-- One account per email. Guarded: a legacy install with duplicate emails must
+-- still boot — it just misses the index until the duplicates are cleaned up.
+DO $$ BEGIN
+  CREATE UNIQUE INDEX IF NOT EXISTS users_email_key ON users (lower(email)) WHERE email <> '';
+EXCEPTION WHEN unique_violation THEN
+  RAISE WARNING 'users_email_key skipped: duplicate emails exist';
+END $$;
+
+-- Pending invitations. The link token is stored hashed; the plain token lives
+-- only in the invite email (and the one-time copy link shown after sending).
+-- Role delete cascades — an invite for a vanished role is meaningless.
+CREATE TABLE IF NOT EXISTS invites (
+  id               SERIAL PRIMARY KEY,
+  email            TEXT NOT NULL,
+  role_id          INTEGER NOT NULL REFERENCES roles(id) ON DELETE CASCADE,
+  department_ids   INTEGER[] NOT NULL DEFAULT '{}',
+  token_hash       TEXT NOT NULL UNIQUE,
+  invited_by       INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  created_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
+  expires_at       TIMESTAMPTZ NOT NULL,
+  accepted_at      TIMESTAMPTZ,
+  accepted_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL
+);
 
 CREATE TABLE IF NOT EXISTS app_settings (
   id          INTEGER PRIMARY KEY CHECK (id = 1),

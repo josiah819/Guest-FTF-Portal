@@ -6,9 +6,10 @@ const express = require('express');
 const bcrypt = require('bcryptjs');
 const crypto = require('crypto');
 const { pool } = require('../db');
-const { aw, clampStr } = require('../util');
+const { aw, clampStr, publicOrigin } = require('../util');
 const { requirePerm, bustActorCache } = require('../rbac');
 const { PERMISSIONS, PERMISSION_KEYS } = require('../permissions');
+const { notify, smtpEnabled } = require('../notify');
 
 const router = express.Router();
 // This router is mounted at the admin router's root, so a router.use() gate
@@ -76,27 +77,98 @@ async function setUserDepartments(userId, departmentIds) {
   }
 }
 
-router.post('/users', gate, aw(async (req, res) => {
-  const username = clampStr(req.body.username, 100).toLowerCase().replace(/\s+/g, '');
-  const displayName = clampStr(req.body.displayName, 120) || username;
-  const email = clampStr(req.body.email, 200);
+// ---------- invites ----------
+// Onboarding is invite-first: the admin enters an email, the invitee opens the
+// emailed link and finishes the account themselves (Google or password). The
+// raw token exists only in that link — we store a hash, so "copy link" is only
+// offered right after sending, and resending rotates the token.
+
+const INVITE_DAYS = 7;
+const cleanDeptIds = (ids) =>
+  [...new Set((Array.isArray(ids) ? ids : []).map(d => parseInt(d, 10)).filter(Number.isInteger))];
+const hashToken = (t) => crypto.createHash('sha256').update(t).digest('hex');
+
+async function sendInviteEmail(req, invite, token) {
+  const origin = publicOrigin(req);
+  const acceptUrl = origin ? `${origin}/join/${token}` : `/join/${token}`;
+  const { rows: [inviter] } = await pool.query(
+    'SELECT display_name FROM users WHERE id = $1', [invite.invited_by]);
+  const emailed = await notify({
+    to: invite.email,
+    subject: 'You’re invited to WoodsVoice — Muskoka Woods guest care',
+    text:
+`${inviter?.display_name || 'A teammate'} has invited you to join WoodsVoice, Muskoka Woods’ guest care portal.
+
+Set up your account here:
+${acceptUrl}
+
+You can finish with your Google account or set a password — either way takes under a minute. The link expires in ${INVITE_DAYS} days.
+
+If you weren’t expecting this, you can ignore it.`,
+  });
+  return { acceptUrl, emailed };
+}
+
+const inviteListSql = `
+  SELECT i.id, i.email, i.role_id, r.name AS role_name, i.department_ids,
+         i.created_at, i.expires_at, i.expires_at < now() AS expired,
+         u.display_name AS invited_by_name
+    FROM invites i
+    JOIN roles r ON r.id = i.role_id
+    LEFT JOIN users u ON u.id = i.invited_by
+   WHERE i.accepted_at IS NULL
+   ORDER BY i.created_at DESC`;
+
+router.get('/users/invites', gate, aw(async (req, res) => {
+  const { rows } = await pool.query(inviteListSql);
+  res.json({ rows });
+}));
+
+router.post('/users/invites', gate, aw(async (req, res) => {
+  const email = clampStr(req.body.email, 200).toLowerCase();
   const roleId = req.body.roleId ? parseInt(req.body.roleId, 10) : null;
-  if (username.length < 3) return res.status(400).json({ error: 'Username needs at least 3 characters.' });
-  if (!roleId) return res.status(400).json({ error: 'Pick a role for the new user.' });
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    return res.status(400).json({ error: 'That doesn’t look like an email address.' });
+  }
+  if (!roleId) return res.status(400).json({ error: 'Pick a role for the invite.' });
   const { rows: role } = await pool.query('SELECT id FROM roles WHERE id = $1', [roleId]);
   if (!role.length) return res.status(400).json({ error: 'That role doesn’t exist.' });
-  const { rows: clash } = await pool.query('SELECT 1 FROM users WHERE lower(username) = $1', [username]);
-  if (clash.length) return res.status(400).json({ error: 'That username is taken.' });
+  const { rows: existing } = await pool.query(
+    `SELECT 1 FROM users WHERE email <> '' AND lower(email) = $1`, [email]);
+  if (existing.length) return res.status(400).json({ error: 'Someone already has an account with that email.' });
 
-  const password = tempPassword();
-  const { rows } = await pool.query(
-    `INSERT INTO users (username, display_name, email, password_hash, role_id, must_change_password)
-     VALUES ($1,$2,$3,$4,$5,true)
-     RETURNING id, username, display_name, email, role_id, active, must_change_password, created_at`,
-    [username, displayName, email, bcrypt.hashSync(password, 10), roleId]);
-  await setUserDepartments(rows[0].id, req.body.departmentIds);
-  bustActorCache();
-  res.status(201).json({ user: rows[0], tempPassword: password });
+  // One pending invite per address — re-inviting replaces the old link.
+  await pool.query('DELETE FROM invites WHERE accepted_at IS NULL AND lower(email) = $1', [email]);
+
+  const token = crypto.randomBytes(32).toString('base64url');
+  const { rows: [invite] } = await pool.query(
+    `INSERT INTO invites (email, role_id, department_ids, token_hash, invited_by, expires_at)
+     VALUES ($1,$2,$3,$4,$5, now() + interval '${INVITE_DAYS} days') RETURNING *`,
+    [email, roleId, cleanDeptIds(req.body.departmentIds), hashToken(token), req.actor.id]);
+  const { acceptUrl, emailed } = await sendInviteEmail(req, invite, token);
+  const { rows } = await pool.query(inviteListSql);
+  res.status(201).json({ rows, inviteId: invite.id, acceptUrl, emailed, smtp: smtpEnabled() });
+}));
+
+router.post('/users/invites/:id/resend', gate, aw(async (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  const token = crypto.randomBytes(32).toString('base64url');
+  const { rows: [invite] } = await pool.query(
+    `UPDATE invites SET token_hash = $1, expires_at = now() + interval '${INVITE_DAYS} days'
+      WHERE id = $2 AND accepted_at IS NULL RETURNING *`,
+    [hashToken(token), id]);
+  if (!invite) return res.status(404).json({ error: 'Not found' });
+  const { acceptUrl, emailed } = await sendInviteEmail(req, invite, token);
+  const { rows } = await pool.query(inviteListSql);
+  res.json({ rows, inviteId: invite.id, acceptUrl, emailed, smtp: smtpEnabled() });
+}));
+
+router.delete('/users/invites/:id', gate, aw(async (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  const { rowCount } = await pool.query(
+    'DELETE FROM invites WHERE id = $1 AND accepted_at IS NULL', [id]);
+  if (!rowCount) return res.status(404).json({ error: 'Not found' });
+  res.json({ ok: true });
 }));
 
 router.patch('/users/:id', gate, aw(async (req, res) => {

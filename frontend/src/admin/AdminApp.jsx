@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import { Link, NavLink, Navigate, Route, Routes } from 'react-router-dom';
 import { api, getToken, setToken } from '../api';
+import GoogleButton from '../components/GoogleButton';
 import Dashboard from './Dashboard';
 import Submissions from './Submissions';
 import LocationsQR from './LocationsQR';
@@ -19,6 +20,11 @@ function Login({ onLogin }) {
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  const [googleClientId, setGoogleClientId] = useState('');
+
+  useEffect(() => {
+    api.ssoConfig().then(d => setGoogleClientId(d.googleClientId)).catch(() => {});
+  }, []);
 
   async function submit(e) {
     e.preventDefault();
@@ -35,15 +41,32 @@ function Login({ onLogin }) {
     }
   }
 
+  async function googleSignIn(credential) {
+    setError('');
+    try {
+      const res = await api.loginGoogle(credential);
+      setToken(res.token);
+      onLogin(res);
+    } catch (err) {
+      setError(err.message);
+    }
+  }
+
   return (
     <div className="login-shell">
       <div className="login-card rise">
         <img src="/brand/mw-logo-colour.png" alt="Muskoka Woods" />
         <h1 className="display">Guest Care HQ</h1>
         <p className="muted" style={{ margin: '6px 0 18px' }}>Sign in to manage WoodsVoice submissions.</p>
+        {googleClientId && (
+          <>
+            <GoogleButton clientId={googleClientId} onCredential={googleSignIn} onError={setError} text="signin_with" />
+            <div className="auth-divider">or</div>
+          </>
+        )}
         <form onSubmit={submit}>
           <div className="form-col">
-            <label>Username</label>
+            <label>Username or email</label>
             <input className="input" autoFocus autoComplete="username" value={username} onChange={e => setUsername(e.target.value)} />
           </div>
           <div className="form-col">

@@ -383,6 +383,15 @@ textarea.input { min-height: 110px; resize: vertical; }
 }
 .btn-teal { background: var(--teal); color: var(--paper); }
 .btn-teal:hover:not(:disabled) { background: var(--teal-dark); }
+.btn-danger { background: var(--red); color: #FFF; }
+.btn-danger:hover:not(:disabled) { background: #8E2F14; }
+.btn-danger-ghost {
+  background: none;
+  color: var(--red);
+  border: 1.5px solid #E5B5A5;
+}
+.btn-danger-ghost:hover:not(:disabled) { border-color: var(--red); background: #F8E3DC; }
+.btn-tiny { font-size: 10px; padding: 4px 9px; border-radius: 7px; letter-spacing: 0.08em; }
 
 .expectation {
   display: flex;
@@ -1328,6 +1337,36 @@ textarea.input { min-height: 110px; resize: vertical; }
 }
 .secret-note .close:hover { opacity: 1; }
 
+/* Pending invitations — sits between the invite form and the user rows. */
+.invite-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 9px 0;
+  border-top: 1px dashed var(--line);
+  font-size: 13.5px;
+}
+.invite-row .mail { font-weight: 700; overflow-wrap: anywhere; }
+.invite-row .meta { color: var(--ink-faint); font-size: 12px; }
+.invite-row.expired .mail { color: var(--ink-faint); text-decoration: line-through; }
+
+/* "or" separator between Google and password sign-in. */
+.auth-divider {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 16px 0;
+  color: var(--ink-faint);
+  font-size: 11.5px;
+  font-family: var(--font-head);
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+.auth-divider::before,
+.auth-divider::after { content: ''; flex: 1; height: 1px; background: var(--line); }
+
 .team-add {
   display: flex;
   gap: 8px;
@@ -1386,20 +1425,45 @@ textarea.input { min-height: 110px; resize: vertical; }
 .perm-table .pd { font-size: 12px; color: var(--ink-faint); max-width: 34ch; }
 .perm-table input[type='checkbox'] { width: 17px; height: 17px; accent-color: var(--teal); cursor: pointer; }
 .perm-table input[type='checkbox']:disabled { cursor: not-allowed; }
-.link-danger {
-  border: 0;
-  background: none;
-  color: var(--red);
-  font-size: 11.5px;
-  cursor: pointer;
-  margin-left: 6px;
-  text-decoration: underline;
+/* Destructive-action confirmation dialog (see components/ConfirmDialog.jsx). */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  background: rgba(18, 52, 58, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  animation: fadeIn 0.15s ease both;
 }
-
-.link-danger:disabled {
-  opacity: 0.35;
-  cursor: default;
+.modal-card {
+  background: var(--card);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-pop);
+  padding: 26px 28px 24px;
+  max-width: 460px;
+  width: 100%;
+  animation: riseIn 0.22s cubic-bezier(0.2, 0.7, 0.2, 1) both;
 }
+.modal-card h3 {
+  margin: 0 0 8px;
+  font-family: var(--font-head);
+  font-size: 17px;
+  overflow-wrap: anywhere;
+}
+.modal-card p {
+  margin: 0 0 20px;
+  color: var(--ink-soft);
+  font-size: 14.5px;
+  line-height: 1.55;
+}
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+@keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
 
 /* ---------- content tab ---------- */
 

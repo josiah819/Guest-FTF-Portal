@@ -24,6 +24,7 @@ app.get('/api/health', async (req, res) => {
 });
 
 app.use('/api/public', require('./routes/public'));
+app.use('/api/join', require('./routes/join'));
 app.use('/api/admin', require('./routes/admin'));
 
 app.use((req, res) => res.status(404).json({ error: 'Not found' }));

@@ -43,15 +43,25 @@ export const api = {
   rate: (code, stars, comment) =>
     request(`/api/public/track/${encodeURIComponent(code)}/rating`, { method: 'POST', body: { stars, comment } }),
 
+  // invite acceptance (public, token-keyed)
+  joinInfo: (token) => request(`/api/join/${encodeURIComponent(token)}`),
+  joinAccept: (token, body) => request(`/api/join/${encodeURIComponent(token)}/accept`, { method: 'POST', body }),
+  joinGoogle: (token, credential) => request(`/api/join/${encodeURIComponent(token)}/google`, { method: 'POST', body: { credential } }),
+
   // admin
   login: (username, password) => request('/api/admin/login', { method: 'POST', body: { username, password } }),
+  loginGoogle: (credential) => request('/api/admin/login/google', { method: 'POST', body: { credential } }),
+  ssoConfig: () => request('/api/admin/sso'),
   changePassword: (current, next) => request('/api/admin/change-password', { method: 'POST', body: { current, next }, auth: true }),
   me: () => request('/api/admin/me', { auth: true }),
 
   // team & roles
   permissionCatalog: () => request('/api/admin/permissions', { auth: true }),
   users: () => request('/api/admin/users', { auth: true }),
-  createUser: (body) => request('/api/admin/users', { method: 'POST', body, auth: true }),
+  invites: () => request('/api/admin/users/invites', { auth: true }),
+  createInvite: (body) => request('/api/admin/users/invites', { method: 'POST', body, auth: true }),
+  resendInvite: (id) => request(`/api/admin/users/invites/${id}/resend`, { method: 'POST', auth: true }),
+  revokeInvite: (id) => request(`/api/admin/users/invites/${id}`, { method: 'DELETE', auth: true }),
   updateUser: (id, body) => request(`/api/admin/users/${id}`, { method: 'PATCH', body, auth: true }),
   resetUserPassword: (id) => request(`/api/admin/users/${id}/reset-password`, { method: 'POST', auth: true }),
   deleteUser: (id) => request(`/api/admin/users/${id}`, { method: 'DELETE', auth: true }),

@@ -1,8 +1,9 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { api } from '../api';
 import { useActor } from './AdminApp';
+import { useConfirm } from '../components/ConfirmDialog';
 
-// One-time password reveal — shown exactly once after create/reset.
+// One-time password reveal — shown exactly once after a password reset.
 function SecretNote({ secret, onDismiss }) {
   if (!secret) return null;
   return (
@@ -16,6 +17,32 @@ function SecretNote({ secret, onDismiss }) {
       <p className="muted" style={{ margin: '6px 0 0', fontSize: 13 }}>
         Share it over a trusted channel. They’ll be asked to set their own password on first sign-in.
         This is the only time it’s shown.
+      </p>
+      <button className="close" onClick={onDismiss} aria-label="Dismiss">✕</button>
+    </div>
+  );
+}
+
+// Shown right after sending (or resending) an invite — the only moment the
+// link exists in plain form, so this is where "copy link" lives.
+function InviteNote({ note, onDismiss }) {
+  const [copied, setCopied] = useState(false);
+  if (!note) return null;
+  return (
+    <div className="secret-note" role="status">
+      <div>
+        Invite sent to <strong>{note.email}</strong>
+        {note.emailed
+          ? ' — they’ve got mail.'
+          : note.smtp ? ' — but the email failed to send.' : ' — email isn’t configured, so share the link yourself:'}
+        <button className="btn btn-ghost btn-small" style={{ marginLeft: 8 }}
+          onClick={() => { navigator.clipboard?.writeText(note.acceptUrl); setCopied(true); }}>
+          {copied ? '✓ Copied' : '⧉ Copy invite link'}
+        </button>
+      </div>
+      <p className="muted" style={{ margin: '6px 0 0', fontSize: 13 }}>
+        The link lets them finish their account with Google or a password, and expires in 7 days.
+        Resending later makes a fresh link.
       </p>
       <button className="close" onClick={onDismiss} aria-label="Dismiss">✕</button>
     </div>
@@ -38,20 +65,71 @@ function DeptChips({ departments, selected, onToggle }) {
   );
 }
 
-function UsersCard({ users, roles, departments, reload, setSecret, setToast }) {
+function PendingInvites({ invites, setInviteNote, reloadInvites, confirm, setToast }) {
+  if (!invites.length) return null;
+
+  async function resend(inv) {
+    try {
+      const res = await api.resendInvite(inv.id);
+      setInviteNote({ email: inv.email, acceptUrl: res.acceptUrl, emailed: res.emailed, smtp: res.smtp });
+      reloadInvites(res.rows);
+    } catch (err) {
+      setToast(err.message);
+    }
+  }
+
+  async function revoke(inv) {
+    const ok = await confirm({
+      title: `Revoke the invite for ${inv.email}?`,
+      message: 'The link in their email stops working immediately. You can always invite them again later.',
+      confirmLabel: 'Revoke invite',
+    });
+    if (!ok) return;
+    try {
+      await api.revokeInvite(inv.id);
+      reloadInvites();
+    } catch (err) {
+      setToast(err.message);
+    }
+  }
+
+  return (
+    <div style={{ margin: '4px 0 14px' }}>
+      <div className="muted" style={{ fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', fontSize: 11 }}>
+        Waiting on {invites.length} {invites.length === 1 ? 'invite' : 'invites'}
+      </div>
+      {invites.map(inv => (
+        <div className={`invite-row${inv.expired ? ' expired' : ''}`} key={inv.id}>
+          <span className="mail">{inv.email}</span>
+          <span className="badge">{inv.role_name}</span>
+          <span className="meta">
+            {inv.expired
+              ? 'expired — resend to refresh'
+              : `invited ${new Date(inv.created_at).toLocaleDateString()} by ${inv.invited_by_name || 'a former teammate'}`}
+          </span>
+          <span className="spacer" />
+          <button className="btn btn-ghost btn-small" onClick={() => resend(inv)}>↻ Resend</button>
+          <button className="btn btn-danger-ghost btn-small" onClick={() => revoke(inv)}>Revoke</button>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function UsersCard({ users, invites, roles, departments, reload, reloadInvites, setSecret, setInviteNote, confirm, setToast }) {
   const actor = useActor();
-  const blankDraft = { username: '', displayName: '', email: '', roleId: '', departmentIds: [] };
+  const blankDraft = { email: '', roleId: '', departmentIds: [] };
   const [draft, setDraft] = useState(blankDraft);
   const [busy, setBusy] = useState(false);
 
-  async function createUser(e) {
+  async function sendInvite(e) {
     e.preventDefault();
     setBusy(true);
     try {
-      const res = await api.createUser(draft);
-      setSecret({ username: res.user.username, password: res.tempPassword });
+      const res = await api.createInvite(draft);
+      setInviteNote({ email: draft.email.trim(), acceptUrl: res.acceptUrl, emailed: res.emailed, smtp: res.smtp });
       setDraft(blankDraft);
-      reload();
+      reloadInvites(res.rows);
     } catch (err) {
       setToast(err.message);
     } finally {
@@ -79,7 +157,12 @@ function UsersCard({ users, roles, departments, reload, setSecret, setToast }) {
   }
 
   async function removeUser(u) {
-    if (!window.confirm(`Delete @${u.username}? They can no longer sign in, and their name comes off past ticket history. This can’t be undone.`)) return;
+    const ok = await confirm({
+      title: `Delete @${u.username}?`,
+      message: 'They can no longer sign in, and their name comes off past ticket history. This can’t be undone — deactivating is enough if they might come back.',
+      confirmLabel: 'Delete user',
+    });
+    if (!ok) return;
     try {
       await api.deleteUser(u.id);
       reload();
@@ -92,16 +175,13 @@ function UsersCard({ users, roles, departments, reload, setSecret, setToast }) {
     <div className="card">
       <h3>Users</h3>
       <p className="hint">
-        Each person signs in with their own account. What they can see and do comes from their
-        role (matrix below) plus which departments they belong to.
+        Invite people by email — they finish their own account with Google or a password.
+        What they can see and do comes from their role (matrix below) plus which departments they belong to.
       </p>
 
-      <form onSubmit={createUser} className="team-add">
-        <input className="input" placeholder="username" autoCapitalize="none" value={draft.username}
-          onChange={e => setDraft(d => ({ ...d, username: e.target.value }))} />
-        <input className="input" placeholder="Display name" value={draft.displayName}
-          onChange={e => setDraft(d => ({ ...d, displayName: e.target.value }))} />
-        <input className="input" placeholder="Email (for notifications)" type="email" value={draft.email}
+      <form onSubmit={sendInvite} className="team-add">
+        <input className="input" style={{ minWidth: 220 }} placeholder="teammate@muskokawoods.com"
+          type="email" autoCapitalize="none" value={draft.email}
           onChange={e => setDraft(d => ({ ...d, email: e.target.value }))} />
         <select className="input" value={draft.roleId}
           onChange={e => setDraft(d => ({ ...d, roleId: e.target.value }))}>
@@ -114,10 +194,13 @@ function UsersCard({ users, roles, departments, reload, setSecret, setToast }) {
             departmentIds: d.departmentIds.includes(id)
               ? d.departmentIds.filter(x => x !== id) : [...d.departmentIds, id],
           }))} />
-        <button className="btn btn-teal btn-small" disabled={busy || !draft.username || !draft.roleId}>
-          + Create user
+        <button className="btn btn-teal btn-small" disabled={busy || !draft.email.trim() || !draft.roleId}>
+          ✉ Send invite
         </button>
       </form>
+
+      <PendingInvites invites={invites} setInviteNote={setInviteNote}
+        reloadInvites={reloadInvites} confirm={confirm} setToast={setToast} />
 
       {users.map(u => (
         <div className={`team-row${u.active ? '' : ' inactive'}`} key={u.id}>
@@ -134,8 +217,9 @@ function UsersCard({ users, roles, departments, reload, setSecret, setToast }) {
             <button className={`switch${u.active ? ' on' : ''}`} title={u.active ? 'Active' : 'Deactivated'}
               disabled={u.id === actor.user.id}
               onClick={() => update(u.id, { active: !u.active })} aria-label="Toggle active" />
-            <button className="link-danger" disabled={u.id === actor.user.id}
-              onClick={() => removeUser(u)}>delete</button>
+            <button className="btn btn-danger-ghost btn-small" disabled={u.id === actor.user.id}
+              title={u.id === actor.user.id ? 'You can’t delete your own account' : undefined}
+              onClick={() => removeUser(u)}>Delete</button>
           </div>
           <div className="team-row__sub">
             <input className="input" style={{ width: 240 }} placeholder="email" type="email" defaultValue={u.email}
@@ -152,7 +236,7 @@ function UsersCard({ users, roles, departments, reload, setSecret, setToast }) {
   );
 }
 
-function RolesMatrix({ roles, permissions, reload, setToast }) {
+function RolesMatrix({ roles, permissions, reload, confirm, setToast }) {
   const [newRole, setNewRole] = useState('');
 
   const groups = useMemo(() => {
@@ -188,6 +272,12 @@ function RolesMatrix({ roles, permissions, reload, setToast }) {
   }
 
   async function removeRole(role) {
+    const ok = await confirm({
+      title: `Delete the “${role.name}” role?`,
+      message: 'Its permission settings are gone for good, and any pending invites for this role are cancelled. This can’t be undone.',
+      confirmLabel: 'Delete role',
+    });
+    if (!ok) return;
     try {
       await api.deleteRole(role.id);
       reload();
@@ -220,7 +310,8 @@ function RolesMatrix({ roles, permissions, reload, setToast }) {
                   <div className="muted" style={{ fontSize: 11.5, fontWeight: 400, marginTop: 2 }}>
                     {r.user_count} {r.user_count === 1 ? 'user' : 'users'}
                     {!r.is_system && r.user_count === 0 && (
-                      <button className="link-danger" onClick={() => removeRole(r)}>delete</button>
+                      <button className="btn btn-danger-ghost btn-tiny" style={{ marginLeft: 6 }}
+                        onClick={() => removeRole(r)}>Delete</button>
                     )}
                   </div>
                 </th>
@@ -264,15 +355,25 @@ function RolesMatrix({ roles, permissions, reload, setToast }) {
 
 export default function Team() {
   const [users, setUsers] = useState(null);
+  const [invites, setInvites] = useState([]);
   const [roles, setRoles] = useState(null);
   const [permissions, setPermissions] = useState(null);
   const [departments, setDepartments] = useState([]);
   const [secret, setSecret] = useState(null);
+  const [inviteNote, setInviteNote] = useState(null);
   const [toast, setToast] = useState('');
+  const { confirm, confirmElement } = useConfirm();
+
+  // Invite endpoints hand back the fresh list; without one we refetch.
+  function reloadInvites(rows) {
+    if (rows) return setInvites(rows);
+    api.invites().then(d => setInvites(d.rows)).catch(err => setToast(err.message));
+  }
 
   function reload() {
     api.users().then(d => setUsers(d.rows)).catch(err => setToast(err.message));
     api.roles().then(d => setRoles(d.rows)).catch(err => setToast(err.message));
+    reloadInvites();
   }
 
   useEffect(() => {
@@ -300,14 +401,17 @@ export default function Team() {
       </div>
 
       <SecretNote secret={secret} onDismiss={() => setSecret(null)} />
+      <InviteNote key={inviteNote?.acceptUrl} note={inviteNote} onDismiss={() => setInviteNote(null)} />
 
-      <UsersCard users={users} roles={roles} departments={departments}
-        reload={reload} setSecret={setSecret} setToast={setToast} />
+      <UsersCard users={users} invites={invites} roles={roles} departments={departments}
+        reload={reload} reloadInvites={reloadInvites}
+        setSecret={setSecret} setInviteNote={setInviteNote} confirm={confirm} setToast={setToast} />
 
       <div style={{ height: 16 }} />
 
-      <RolesMatrix roles={roles} permissions={permissions} reload={reload} setToast={setToast} />
+      <RolesMatrix roles={roles} permissions={permissions} reload={reload} confirm={confirm} setToast={setToast} />
 
+      {confirmElement}
       {toast && <div className="toast">{toast}</div>}
     </>
   );

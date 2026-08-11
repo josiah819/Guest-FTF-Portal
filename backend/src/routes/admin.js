@@ -3,7 +3,8 @@ const multer = require('multer');
 const path = require('path');
 const { pool, getSettings, saveSettings } = require('../db');
 const { aw, clampStr, newFileName } = require('../util');
-const { requireAuth, login, changePassword } = require('../auth');
+const { requireAuth, login, loginGoogle, changePassword } = require('../auth');
+const { googleEnabled, GOOGLE_CLIENT_ID } = require('../google');
 const { attachActor, requirePerm, deptFilter, inDeptScope } = require('../rbac');
 const { dashboardMetrics, insightsInput } = require('../metrics');
 const { generateInsights, testClassify, aiEnabled } = require('../classify');
@@ -14,6 +15,9 @@ const { rapMirrorStatus, probeMirror } = require('../rapMirror');
 const router = express.Router();
 
 router.post('/login', login);
+router.post('/login/google', loginGoogle);
+// Public on purpose: the login page needs the client id before anyone signs in.
+router.get('/sso', (req, res) => res.json({ googleClientId: googleEnabled() ? GOOGLE_CLIENT_ID : '' }));
 router.use(requireAuth);
 router.use(attachActor);
 router.post('/change-password', changePassword);

@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import QRCode from 'qrcode';
 import { api } from '../api';
 import { useActor } from './AdminApp';
+import { useConfirm } from '../components/ConfirmDialog';
 
 // Mirrors DEFAULT_SETTINGS.content.sign in backend/src/db.js — the fallback
 // while settings load and the target of "Reset to default".
@@ -185,6 +186,7 @@ export default function LocationsQR() {
   const [newArea, setNewArea] = useState('Cabins');
   const [showInactive, setShowInactive] = useState(false);
   const [toast, setToast] = useState('');
+  const { confirm, confirmElement } = useConfirm();
 
   const load = () => api.catalog('locations').then(d => setRows(d.rows));
   useEffect(() => {
@@ -217,7 +219,12 @@ export default function LocationsQR() {
   }
 
   async function remove(r) {
-    if (!window.confirm(`Delete “${r.name}”? Its QR code stops working. Past submissions keep the name.`)) return;
+    const ok = await confirm({
+      title: `Delete “${r.name}”?`,
+      message: 'Its QR code stops working and it comes off the guest form. Past submissions keep the name. This can’t be undone — deactivating hides it without losing the sign.',
+      confirmLabel: 'Delete location',
+    });
+    if (!ok) return;
     try {
       await api.catalogDelete('locations', r.id);
       await load();
@@ -287,7 +294,7 @@ export default function LocationsQR() {
               onBlur={e => e.target.value !== r.area && update(r.id, { area: e.target.value })} />
             <button className={`switch${r.active ? ' on' : ''}`} title={r.active ? 'Active' : 'Hidden'}
               onClick={() => update(r.id, { active: !r.active })} aria-label="Toggle active" />
-            <button className="link-danger" onClick={() => remove(r)}>Delete</button>
+            <button className="btn btn-danger-ghost btn-small" onClick={() => remove(r)}>Delete</button>
           </div>
         ))}
         <label className="muted" style={{ display: 'inline-flex', gap: 7, marginTop: 12, cursor: 'pointer' }}>
@@ -325,6 +332,7 @@ export default function LocationsQR() {
         <div className="card muted no-print">QR generator is switched off in Settings → Features.</div>
       )}
 
+      {confirmElement}
       {toast && <div className="toast">{toast}</div>}
     </>
   );

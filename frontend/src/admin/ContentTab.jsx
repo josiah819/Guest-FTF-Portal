@@ -112,7 +112,7 @@ export default function ContentTab({ s, patch, patchPath, applySettings, setToas
                 onChange={e => patchPath('content', ['branding', 'colors', k], e.target.value)} />
               {k}
               {(colors[k] || '').toLowerCase() !== BRAND_DEFAULTS[k].toLowerCase() && colors[k] && (
-                <button type="button" className="link-danger" onClick={() => patchPath('content', ['branding', 'colors', k], BRAND_DEFAULTS[k])}>reset</button>
+                <button type="button" className="btn btn-danger-ghost btn-tiny" onClick={() => patchPath('content', ['branding', 'colors', k], BRAND_DEFAULTS[k])}>Reset</button>
               )}
             </label>
           ))}

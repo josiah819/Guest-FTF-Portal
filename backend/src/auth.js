@@ -2,6 +2,7 @@ const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs');
 const { pool } = require('./db');
 const { aw, clampStr } = require('./util');
+const { verifyGoogleCredential } = require('./google');
 
 const JWT_SECRET = process.env.JWT_SECRET || 'woodsvoice-dev-secret-change-me';
 if (JWT_SECRET === 'woodsvoice-dev-secret-change-me') {
@@ -16,22 +17,62 @@ function signToken(user) {
   );
 }
 
+function loginPayload(user) {
+  return {
+    token: signToken(user),
+    name: user.display_name,
+    username: user.username,
+    mustChangePassword: user.must_change_password,
+  };
+}
+
 const login = aw(async (req, res) => {
-  const username = clampStr(req.body.username, 100);
+  const handle = clampStr(req.body.username, 200);
   const password = typeof req.body.password === 'string' ? req.body.password : '';
-  const { rows } = await pool.query('SELECT * FROM users WHERE lower(username) = lower($1)', [username]);
-  if (!rows.length || !bcrypt.compareSync(password, rows[0].password_hash)) {
+  // Exact username first so someone's username can never be shadowed by
+  // someone else's email; email is the fallback for invited accounts.
+  let { rows } = await pool.query('SELECT * FROM users WHERE lower(username) = lower($1)', [handle]);
+  if (!rows.length) {
+    ({ rows } = await pool.query(
+      `SELECT * FROM users WHERE email <> '' AND lower(email) = lower($1)`, [handle]));
+  }
+  if (rows.length === 1 && !rows[0].password_hash) {
+    // Google-only account; a wrong-password error would send them in circles.
+    return res.status(401).json({ error: 'That account signs in with Google — use the Google button below.' });
+  }
+  if (rows.length !== 1 || !bcrypt.compareSync(password, rows[0].password_hash)) {
     return res.status(401).json({ error: 'Invalid username or password.' });
   }
   if (!rows[0].active) {
     return res.status(401).json({ error: 'This account has been deactivated.' });
   }
-  res.json({
-    token: signToken(rows[0]),
-    name: rows[0].display_name,
-    username: rows[0].username,
-    mustChangePassword: rows[0].must_change_password,
-  });
+  res.json(loginPayload(rows[0]));
+});
+
+// Google sign-in for existing accounts. Matched by google_sub first (stable),
+// then by verified email — which links google_sub for next time.
+const loginGoogle = aw(async (req, res) => {
+  let g;
+  try {
+    g = await verifyGoogleCredential(req.body.credential);
+  } catch (err) {
+    return res.status(401).json({ error: err.message });
+  }
+  let { rows } = await pool.query('SELECT * FROM users WHERE google_sub = $1', [g.sub]);
+  if (!rows.length) {
+    ({ rows } = await pool.query(
+      `SELECT * FROM users WHERE email <> '' AND lower(email) = lower($1)`, [g.email]));
+    if (rows.length === 1 && !rows[0].google_sub) {
+      await pool.query('UPDATE users SET google_sub = $1 WHERE id = $2', [g.sub, rows[0].id]);
+    }
+  }
+  if (rows.length !== 1) {
+    return res.status(401).json({ error: 'No WoodsVoice account matches that Google address — ask an admin to invite you.' });
+  }
+  if (!rows[0].active) {
+    return res.status(401).json({ error: 'This account has been deactivated.' });
+  }
+  res.json(loginPayload(rows[0]));
 });
 
 function requireAuth(req, res, next) {
@@ -51,7 +92,10 @@ const changePassword = aw(async (req, res) => {
   const next = typeof req.body.next === 'string' ? req.body.next : '';
   if (next.length < 8) return res.status(400).json({ error: 'New password must be at least 8 characters.' });
   const { rows } = await pool.query('SELECT * FROM users WHERE id = $1', [req.admin.sub]);
-  if (!rows.length || !bcrypt.compareSync(current, rows[0].password_hash)) {
+  // Google-only accounts have no current password — setting one just adds it.
+  const currentOk = rows.length &&
+    (!rows[0].password_hash || bcrypt.compareSync(current, rows[0].password_hash));
+  if (!currentOk) {
     return res.status(400).json({ error: 'Current password is incorrect.' });
   }
   await pool.query('UPDATE users SET password_hash = $1, must_change_password = false WHERE id = $2',
@@ -59,4 +103,4 @@ const changePassword = aw(async (req, res) => {
   res.json({ ok: true });
 });
 
-module.exports = { login, requireAuth, changePassword };
+module.exports = { login, loginGoogle, requireAuth, changePassword, signToken };
