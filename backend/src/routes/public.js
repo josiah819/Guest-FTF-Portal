@@ -23,6 +23,20 @@ const upload = multer({
   fileFilter: (req, file, cb) => cb(null, /^image\//.test(file.mimetype)),
 });
 
+// Absolute origin for links we hand to RAP (its staff open them from their own
+// network, so a relative path is useless there). PUBLIC_BASE_URL is
+// authoritative; falling back to the request's own origin means trusting the
+// Host header, so it only stands in when the host is a plain hostname — a
+// crafted Host must never turn into a link on someone else's board.
+const CONFIGURED_BASE = String(process.env.PUBLIC_BASE_URL || '').trim().replace(/\/+$/, '');
+const PLAIN_HOST = /^[a-z0-9.-]+(:\d{1,5})?$/i;
+
+function publicOrigin(req) {
+  if (CONFIGURED_BASE) return CONFIGURED_BASE;
+  const host = String(req.get('host') || '');
+  return PLAIN_HOST.test(host) ? `${req.protocol}://${host}` : '';
+}
+
 // Everything the guest form needs to render itself, shaped by admin settings.
 router.get('/config', aw(async (req, res) => {
   const settings = await getSettings();
@@ -152,9 +166,16 @@ router.post('/submissions', rateLimit({ windowMs: 5 * 60 * 1000, max: 12 }), upl
 
   // Queue the raw note for the central RAP intake at capture time — RAP runs
   // its own triage, so this doesn't wait on ours. Never blocks the guest.
+  const origin = publicOrigin(req);
   await enqueueRap(settings, {
     submissionId: id, text: message, submittedAt: rows[0].created_at,
     code, location: location?.name || '', channel: source,
+    guestName, guestEmail, guestPhone, groupName, locationSlug,
+    guestType: guestChoseType ? type : '',
+    guestUrgency: guestChoseUrgency ? urgency : '',
+    guestCategory: category ? categorySlug : '',
+    photoUrl: origin && photoPath ? `${origin}${photoPath}` : '',
+    trackingUrl: origin && settings.features.tracking ? `${origin}/t/${code}` : '',
   });
 
   // Async pipeline: triage → hours-aware routing → forwarding. The guest never

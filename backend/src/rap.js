@@ -12,6 +12,9 @@
 //    until a restart so we alert instead of hammering.
 //  - The key lives in RAP_INGEST_KEY (env only — never in the database, never
 //    logged, never sent to any browser). All posting happens server-side.
+//  - Everything the guest gave us travels with the note, contact details
+//    included: RAP is where the ticket is actually worked, so its board needs
+//    to be able to reach the guest without anyone coming back here.
 
 const { pool, getSettings } = require('./db');
 
@@ -37,7 +40,7 @@ async function timelineEvent(submissionId, detail) {
 
 // Called inline on submission capture. Must never break the guest's submit —
 // any failure is logged and the note still exists locally.
-async function enqueueRap(settings, { submissionId, text, submittedAt, code, location, channel }) {
+async function enqueueRap(settings, { submissionId, text, submittedAt, code, location, channel, ...guest }) {
   try {
     if (settings.features.rapForward === false) return;
     const body = String(text || '').trim().slice(0, 4000);  // RAP 400s past 4000 chars
@@ -52,6 +55,25 @@ async function enqueueRap(settings, { submissionId, text, submittedAt, code, loc
       location: location || null,
       channel,                                               // qr | kiosk | web
     };
+    // The rest of what the guest gave us. The guest_* type/urgency/category are
+    // the guest's own declarations, sent only when they actually chose one —
+    // our internal defaults would read to RAP's triage as a real answer. Blank
+    // fields are dropped rather than sent as "", for the same reason.
+    for (const [key, value] of Object.entries({
+      guest_name: guest.guestName,
+      guest_email: guest.guestEmail,
+      guest_phone: guest.guestPhone,
+      group_name: guest.groupName,
+      location_slug: guest.locationSlug,
+      guest_type: guest.guestType,
+      guest_urgency: guest.guestUrgency,
+      guest_category: guest.guestCategory,
+      photo_url: guest.photoUrl,
+      tracking_url: guest.trackingUrl,
+    })) {
+      const v = String(value ?? '').trim();
+      if (v) payload[key] = v;
+    }
     await pool.query(
       `INSERT INTO rap_queue (submission_id, payload) VALUES ($1, $2)
        ON CONFLICT (submission_id) DO NOTHING`,

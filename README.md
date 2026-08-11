@@ -94,10 +94,17 @@ and staff work the ticket. WoodsVoice keeps its full local copy either way.
   only fire when nothing was stored); 400 parks the item as `failed`; 401 or any other
   4xx **halts** the sender until the key/URL is fixed and the backend restarts — queued
   notes are never lost, including across crashes and reboots.
-- **Payload:** `{ text, submitted_at }` per contract v2, plus harmless extra fields RAP
-  preserves but never relies on (`source: "woodsvoice"`, our `MW-XXXXXX` code, QR
-  location, channel). The guest’s text goes verbatim, capped at RAP’s 4 000-char limit
+- **Payload:** `{ text, submitted_at }` per contract v2, plus extra fields RAP preserves
+  in its raw record. The guest’s text goes verbatim, capped at RAP’s 4 000-char limit
   (the form’s textarea has the same cap). Without a key, notes queue until one is set.
+  Everything else the guest gave us goes too, so RAP’s board never needs anyone to come
+  back here — identity (`guest_name`, `guest_email`, `guest_phone`, `group_name`), place
+  (`location`, `location_slug`, `channel`), the guest’s **own** picks when they made one
+  (`guest_type`, `guest_urgency`, `guest_category` — never our internal defaults, which
+  would read to RAP’s triage as a real answer), and links (`photo_url`, `tracking_url`,
+  built from `PUBLIC_BASE_URL`). Blank answers are omitted rather than sent as `""`.
+  Guest contact details therefore leave this system — that’s deliberate, and the RAP
+  board is the only place they go.
 - **Smoke test** (prefix with `INTAKE-TEST:` so the RAP operator can spot and delete it):
 
 ```bash
