@@ -1,7 +1,9 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
+import QRCode from 'qrcode';
 import { api } from '../api';
 import { applyTheme } from '../theme';
+import { listMySubmissions, rememberSubmission } from './mySubmissions';
 
 const TYPE_IDS = ['issue', 'request', 'feedback', 'compliment'];
 const URGENCY_IDS = ['low', 'normal', 'high', 'safety'];
@@ -26,6 +28,23 @@ function loadSavedContact() {
   }
 }
 
+// Kiosks are shared screens, so nothing persists there. Instead the success
+// screen shows this QR — the guest scans it and the tracking page lands the
+// submission in their own phone's list.
+function FollowQR({ url }) {
+  const ref = useRef(null);
+  useEffect(() => {
+    if (!ref.current) return;
+    QRCode.toCanvas(ref.current, url, {
+      width: 168,
+      margin: 1,
+      errorCorrectionLevel: 'M',
+      color: { dark: '#004626', light: '#FFFFFF' },
+    }).catch(() => {});
+  }, [url]);
+  return <canvas ref={ref} style={{ width: 168, height: 168, borderRadius: 8 }} />;
+}
+
 export default function GuestForm() {
   const [params] = useSearchParams();
   const kioskParam = params.get('kiosk') === '1';
@@ -43,6 +62,8 @@ export default function GuestForm() {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState(null);
+  const [mySubs, setMySubs] = useState([]);
+  const [savedOnDevice, setSavedOnDevice] = useState(false);
   const fileRef = useRef(null);
   const resetTimer = useRef(null);
 
@@ -73,6 +94,7 @@ export default function GuestForm() {
             setForm(f => ({ ...f, ...saved }));
             setHasSaved(true);
           }
+          setMySubs(listMySubmissions());
         }
       })
       .catch(() => setLoadError('We couldn’t load the form. Please try again in a moment.'));
@@ -132,6 +154,7 @@ export default function GuestForm() {
     setPhoto(null);
     setPhotoPreview('');
     setSuccess(null);
+    setSavedOnDevice(false);
     setError('');
     setContactOpen(false);
     if (!locLocked) setLocationSlug('');
@@ -161,6 +184,11 @@ export default function GuestForm() {
       if (photo && config.features.photoUpload) fd.append('photo', photo);
       const res = await api.submit(fd);
       saveContact();
+      if (res.tracking && !kiosk) {
+        const locName = config.locations.find(l => l.slug === locationSlug)?.name || '';
+        setSavedOnDevice(rememberSubmission({ code: res.code, message: form.message, location: locName }));
+        setMySubs(listMySubmissions());
+      }
       setSuccess(res);
       window.scrollTo({ top: 0, behavior: 'smooth' });
       if (kiosk) resetTimer.current = setTimeout(resetAll, 15000);
@@ -228,22 +256,27 @@ export default function GuestForm() {
             <p style={{ color: 'var(--ink-soft)', maxWidth: '42ch', margin: '10px auto 0' }}>
               {success.successMessage || g.successMessage}
             </p>
-            {success.tracking && (
-              <>
-                <div className="code-box">
-                  {success.code}
-                  <button
-                    onClick={() => navigator.clipboard?.writeText(success.code)}
-                    style={{ border: 0, background: 'none', color: 'inherit', cursor: 'pointer', fontSize: 15 }}
-                    title="Copy code"
-                  >⧉</button>
-                </div>
-                <p className="muted" style={{ marginTop: 12 }}>
-                  {ct.keepCodePrefix || 'Keep this code to'}{' '}
-                  <Link to={`/t/${success.code}`}>{ct.keepCodeLink || 'check on your submission'}</Link>.
+            {success.tracking && (kiosk ? (
+              <div className="qr-follow">
+                <FollowQR url={`${window.location.origin}/t/${success.code}`} />
+                <p className="muted" style={{ margin: 0 }}>
+                  {ct.kioskFollowNote || 'Want to follow along? Scan this with your phone.'}
                 </p>
+              </div>
+            ) : (
+              <>
+                <div style={{ marginTop: 20 }}>
+                  <Link className="btn btn-teal btn-small" to={`/t/${success.code}`}>
+                    {ct.checkStatusLabel || 'Check on this submission →'}
+                  </Link>
+                </div>
+                {savedOnDevice && (
+                  <p className="muted" style={{ marginTop: 12 }}>
+                    {ct.savedNote || 'Saved on this device — scan the QR sign anytime and tap “My submissions”.'}
+                  </p>
+                )}
               </>
-            )}
+            ))}
             <div style={{ marginTop: 22 }}>
               <button className="btn btn-ghost btn-small" onClick={resetAll}>{ct.sendAnotherLabel || 'Send another'}</button>
             </div>
@@ -256,6 +289,16 @@ export default function GuestForm() {
             <h1 className="display">{g.welcomeTitle}</h1>
             <p>{g.welcomeSubtitle}</p>
           </section>
+
+          {config.features.tracking && !kiosk && mySubs.length > 0 && (
+            <div className="guest-locwrap rise rise-1">
+              <Link to="/track" className="my-subs-chip">
+                <span className="ic">📬</span>
+                {ct.mySubmissionsLabel || 'Check my submissions'}
+                <span className="count">{mySubs.length}</span>
+              </Link>
+            </div>
+          )}
 
           {showField('location') && locLocked && lockedLocation && (
             <div className="guest-locwrap rise rise-1">
@@ -409,7 +452,7 @@ export default function GuestForm() {
       <footer className="guest-foot rise rise-3">
         <span>© {new Date().getFullYear()} {g.orgName}</span>
         <span className="guest-foot__links">
-          {config.features.tracking && !success && <Link to="/track">{ct.trackLinkLabel || 'Check a submission →'}</Link>}
+          {config.features.tracking && !success && <Link to="/track">{ct.trackLinkLabel || 'My submissions →'}</Link>}
           <Link to="/privacy">{ct.privacyLinkLabel || 'Privacy'}</Link>
         </span>
       </footer>

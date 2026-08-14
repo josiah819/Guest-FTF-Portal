@@ -169,8 +169,10 @@ export default function ContentTab({ s, patch, patchPath, applySettings, setToas
           <TextRow label="Category hint (AI on)" value={form.categoryHintAi} onChange={setForm('categoryHintAi')} />
           <TextRow label="'Send another' button" value={form.sendAnotherLabel} onChange={setForm('sendAnotherLabel')} />
           <TextRow label="Kiosk reset note" value={form.kioskResetNote} onChange={setForm('kioskResetNote')} />
-          <TextRow label="Keep-code text" value={form.keepCodePrefix} onChange={setForm('keepCodePrefix')} />
-          <TextRow label="Keep-code link text" value={form.keepCodeLink} onChange={setForm('keepCodeLink')} />
+          <TextRow label="Check-status button" value={form.checkStatusLabel} onChange={setForm('checkStatusLabel')} />
+          <TextRow label="Saved-on-device note" value={form.savedNote} onChange={setForm('savedNote')} />
+          <TextRow label="Kiosk follow-along note" value={form.kioskFollowNote} onChange={setForm('kioskFollowNote')} />
+          <TextRow label="'My submissions' button" value={form.mySubmissionsLabel} onChange={setForm('mySubmissionsLabel')} />
           <TextRow label="Footer: tracking link" value={form.trackLinkLabel} onChange={setForm('trackLinkLabel')} />
         </div>
       </Section>
@@ -189,8 +191,9 @@ export default function ContentTab({ s, patch, patchPath, applySettings, setToas
           <TextRow label="Header pill" value={track.pill} onChange={setTrack('pill')} />
           <TextRow label="Kicker" value={track.kicker} onChange={setTrack('kicker')} />
           <TextRow label="Title" value={track.title} onChange={setTrack('title')} />
-          <TextRow label="Code placeholder" value={track.codePlaceholder} onChange={setTrack('codePlaceholder')} />
-          <TextRow label="Look-up button" value={track.lookupLabel} onChange={setTrack('lookupLabel')} />
+          <TextRow label="List title" value={track.listTitle} onChange={setTrack('listTitle')} />
+          <TextRow label="Empty-state note" value={track.emptyNote} onChange={setTrack('emptyNote')} />
+          <TextRow label="Back-to-list link" value={track.backToListLabel} onChange={setTrack('backToListLabel')} />
           <TextRow label="'Being sorted' label" value={track.beingSorted} onChange={setTrack('beingSorted')} />
           <TextRow label="Rating prompt" value={track.ratingPrompt} onChange={setTrack('ratingPrompt')} />
           <TextRow label="Rating thanks" value={track.ratingThanks} onChange={setTrack('ratingThanks')} />

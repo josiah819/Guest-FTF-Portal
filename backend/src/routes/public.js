@@ -216,16 +216,19 @@ router.post('/submissions', rateLimit({ windowMs: 5 * 60 * 1000, max: 12 }), upl
 
 router.get('/track/:code', aw(async (req, res) => {
   const settings = await getSettings();
-  if (!settings.features.tracking) return res.status(404).json({ error: 'Tracking is not enabled.' });
+  // 403, not 404 — the device list prunes codes on 404, and a temporarily
+  // disabled feature must not erase guests' saved submissions.
+  if (!settings.features.tracking) return res.status(403).json({ error: 'Tracking is not enabled.' });
   const code = clampStr(req.params.code, 20).toUpperCase();
   const { rows } = await pool.query(
     `SELECT s.public_code, s.type, s.status, s.urgency, s.created_at, s.resolved_at, s.rating,
+            LEFT(s.message, 200) AS message,
             c.name AS category, c.emoji, l.name AS location
        FROM submissions s
        LEFT JOIN categories c ON c.id = s.category_id
        LEFT JOIN locations l ON l.id = s.location_id
       WHERE s.public_code = $1`, [code]);
-  if (!rows.length) return res.status(404).json({ error: 'We couldn’t find that code. Double-check and try again.' });
+  if (!rows.length) return res.status(404).json({ error: 'We couldn’t find that submission.' });
 
   const { rows: events } = await pool.query(
     `SELECT kind, detail, created_at FROM submission_events

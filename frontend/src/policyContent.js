@@ -28,6 +28,7 @@ export const DEFAULT_POLICY = {
 
 - **Visit counts.** When the form is opened we count the visit so the team knows which QR signs get used. The count uses a scrambled one-way code built from your internet address, browser, and the date — your actual internet address and browser details are never stored, and the code changes every day, so it can’t be used to identify or follow you.
 - **Saved details on your own device.** If you add contact details, your browser remembers them so you don’t retype them for the next note. That information stays on your device — it isn’t sent anywhere until you submit a note, shared kiosk screens never save it, and *Clear saved details* on the form removes it.
+- **Your submissions, on your own device.** After you send a note, your browser keeps a private reference to it (with a short preview of your message) so you can check its progress later without a code — just reopen the form and tap *My submissions*. This list stays on your device, shared kiosk screens never keep it, and clearing your browsing data removes it.
 - **No trackers.** The guest form sets no advertising or analytics cookies.
 
 ## How we use your note

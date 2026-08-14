@@ -22,7 +22,7 @@ async function request(path, { method = 'GET', body, formData, auth = false } = 
     window.dispatchEvent(new Event('woodsvoice:logout'));
   }
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data.error || `Request failed (${res.status})`);
+  if (!res.ok) throw Object.assign(new Error(data.error || `Request failed (${res.status})`), { status: res.status });
   return data;
 }
 
