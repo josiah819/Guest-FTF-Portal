@@ -65,6 +65,35 @@ On phones, Guest Care HQ uses a bottom tab bar and can be added to the home scre
 
 A realistic demo dataset loads on first boot so the dashboard isn't empty (`SEED_DEMO_DATA=false` to disable). To start truly fresh: `docker compose down -v && docker compose up -d --build`.
 
+## Production — woodsvoice.com (Cloudflare Tunnel)
+
+The live site is served through the named Cloudflare tunnel **woodsvoice** (account
+Josiah819@gmail.com): DNS for `woodsvoice.com` / `www` points at the tunnel, and a
+`cloudflared` container (added by `docker-compose.prod.yml`) connects out to
+Cloudflare and forwards to `http://frontend:80`. No host ports, no Caddy, no
+port-forwarding.
+
+```bash
+git clone https://github.com/josiah819/Guest-FTF-Portal.git && cd Guest-FTF-Portal
+cp .env.example .env
+# .env must set, at minimum:
+#   POSTGRES_PASSWORD, JWT_SECRET, ADMIN_PASSWORD  — strong random values
+#   SEED_DEMO_DATA=false                           — no demo content in prod
+#   PUBLIC_BASE_URL=https://woodsvoice.com
+#   GOOGLE_CLIENT_ID=…                             — see .env.example for the prod client id
+#   TUNNEL_TOKEN=…                                 — from the Cloudflare dashboard (see .env.example)
+#   RAP_INGEST_KEY=…                               — notes queue locally until set
+docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
+```
+
+**Run exactly one connector.** If the stack moves to another machine, stop the old
+one (`docker compose down`) before starting the new one — two connectors on one
+tunnel round-robin visitors across two databases. After first boot, set the admin
+user's email (Team page) to the Google address that should own the account; the
+first Google sign-in with a matching email links permanently. Google's OAuth
+config lives in the **WoodsVoice** project in Google Cloud Console (consent screen
+published, origins `https://woodsvoice.com` + `https://www.woodsvoice.com`).
+
 ## The AI layer
 
 Pick the engine in **Settings → AI** (test button included):

@@ -1,0 +1,22 @@
+# Production overlay — serves the site through a named Cloudflare Tunnel instead
+# of the LAN Caddy proxy. Usage:
+#
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
+#
+# Needs TUNNEL_TOKEN in .env (Cloudflare Zero Trust → Networks → Tunnels →
+# woodsvoice → Edit → Install and run a connector — the token is the long
+# string after --token in the install command). The tunnel's published
+# application routes point woodsvoice.com and www at http://frontend:80.
+#
+# Only ONE connector may run per database. Never start this overlay on a second
+# machine while the first is still up — Cloudflare will balance visitors across
+# both and their databases will drift apart.
+
+services:
+  tunnel:
+    image: cloudflare/cloudflared:latest
+    restart: unless-stopped
+    command: tunnel --no-autoupdate run --token ${TUNNEL_TOKEN}
+    depends_on:
+      - frontend
+    networks: [internal]
