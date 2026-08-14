@@ -32,7 +32,9 @@ async function logEvent(submissionId, detail) {
 }
 
 // to: string | string[] — empties dropped, duplicates collapsed.
-async function notify({ submissionId = null, to, subject, text }) {
+// html is optional; when present the mail goes out multipart with text as
+// the fallback, so plain-text-only clients lose nothing.
+async function notify({ submissionId = null, to, subject, text, html }) {
   try {
     const recipients = [...new Set((Array.isArray(to) ? to : [to]).filter(Boolean))];
     if (!recipients.length) {
@@ -43,7 +45,7 @@ async function notify({ submissionId = null, to, subject, text }) {
       await logEvent(submissionId, `Email (SMTP not configured): “${subject}” → ${recipients.join(', ')}`);
       return false;
     }
-    await transport.sendMail({ from: FROM, to: recipients.join(', '), subject, text });
+    await transport.sendMail({ from: FROM, to: recipients.join(', '), subject, text, ...(html ? { html } : {}) });
     await logEvent(submissionId, `Emailed ${recipients.join(', ')}: ${subject}`);
     return true;
   } catch (err) {

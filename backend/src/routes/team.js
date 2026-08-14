@@ -10,6 +10,7 @@ const { aw, clampStr, publicOrigin } = require('../util');
 const { requirePerm, bustActorCache } = require('../rbac');
 const { PERMISSIONS, PERMISSION_KEYS } = require('../permissions');
 const { notify, smtpEnabled } = require('../notify');
+const { inviteEmailHtml } = require('../emails');
 
 const router = express.Router();
 // This router is mounted at the admin router's root, so a router.use() gate
@@ -105,6 +106,12 @@ ${acceptUrl}
 You can finish with your Google account or set a password — either way takes under a minute. The link expires in ${INVITE_DAYS} days.
 
 If you weren’t expecting this, you can ignore it.`,
+    html: inviteEmailHtml({
+      inviterName: inviter?.display_name,
+      acceptUrl,
+      logoUrl: origin ? `${origin}/brand/mw-logo-white.png` : '',
+      expiresDays: INVITE_DAYS,
+    }),
   });
   return { acceptUrl, emailed };
 }
