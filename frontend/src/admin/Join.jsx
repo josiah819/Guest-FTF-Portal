@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { Link, useNavigate, useParams } from 'react-router-dom';
 import { api, setToken } from '../api';
 import GoogleButton from '../components/GoogleButton';
 
@@ -104,6 +104,10 @@ export default function Join() {
             {busy ? 'Creating account…' : 'Create account'}
           </button>
         </form>
+        <p className="muted" style={{ margin: '16px 0 0', fontSize: 12.5 }}>
+          By joining you get a staff account — here&rsquo;s{' '}
+          <Link to="/privacy/staff">how WoodsVoice handles staff data</Link>.
+        </p>
       </div>
     </div>
   );

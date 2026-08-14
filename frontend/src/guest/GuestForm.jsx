@@ -410,6 +410,7 @@ export default function GuestForm() {
         <span>© {new Date().getFullYear()} {g.orgName}</span>
         <span className="guest-foot__links">
           {config.features.tracking && !success && <Link to="/track">{ct.trackLinkLabel || 'Check a submission →'}</Link>}
+          <Link to="/privacy">{ct.privacyLinkLabel || 'Privacy'}</Link>
         </span>
       </footer>
     </div>

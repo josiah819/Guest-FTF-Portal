@@ -148,7 +148,10 @@ export default function Track() {
 
       <footer className="guest-foot rise rise-3">
         <span>© {new Date().getFullYear()} {orgName}</span>
-        <Link to="/">{ct.newSubmissionLabel || '← New submission'}</Link>
+        <span className="guest-foot__links">
+          <Link to="/">{ct.newSubmissionLabel || '← New submission'}</Link>
+          <Link to="/privacy">Privacy</Link>
+        </span>
       </footer>
     </div>
   );

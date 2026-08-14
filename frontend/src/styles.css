@@ -1255,6 +1255,30 @@ textarea.input { min-height: 110px; resize: vertical; }
 
 .guest-foot__links { display: flex; gap: 16px; }
 
+/* privacy pages */
+.policy { font-size: 15px; }
+.policy .policy-date {
+  font-family: var(--font-head);
+  font-weight: 700;
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+  margin: 0 0 14px;
+}
+.policy h2 {
+  font-family: var(--font-head);
+  font-weight: 800;
+  font-size: 15px;
+  letter-spacing: 0.02em;
+  color: var(--teal-dark);
+  margin: 26px 0 8px;
+}
+.policy p { margin: 0 0 12px; color: var(--ink-soft); }
+.policy ul { margin: 0 0 12px; padding-left: 20px; color: var(--ink-soft); }
+.policy li { margin-bottom: 8px; }
+.policy strong { color: var(--ink); }
+
 /* urgency chips: 2×2 on small phones so labels stay readable */
 @media screen and (max-width: 400px) {
   .urgency-row { grid-template-columns: 1fr 1fr; }

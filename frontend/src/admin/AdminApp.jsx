@@ -76,6 +76,9 @@ function Login({ onLogin }) {
           {error && <div className="error-note" style={{ marginBottom: 14 }}>{error}</div>}
           <button className="btn btn-primary" disabled={busy}>{busy ? 'Signing in…' : 'Sign in'}</button>
         </form>
+        <p className="muted" style={{ margin: '16px 0 0', fontSize: 12.5 }}>
+          <Link to="/privacy/staff">How WoodsVoice handles staff data</Link>
+        </p>
       </div>
     </div>
   );
@@ -152,6 +155,7 @@ export default function AdminApp() {
             ))}
             <div className="admin-nav__aux">
               <a href="/" target="_blank" rel="noreferrer"><span className="ic">↗</span><span className="lb">Guest form</span></a>
+              <a href="/privacy/staff" target="_blank" rel="noreferrer"><span className="ic">🔒</span><span className="lb">Privacy</span></a>
             </div>
           </nav>
           <div className="who">
