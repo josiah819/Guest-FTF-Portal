@@ -138,6 +138,13 @@ const DEFAULT_SETTINGS = {
       qrShape: 'dots',     // dots | squares
       qrCard: false,       // true = forest-on-white card (safest for older scanner apps)
     },
+    // Privacy pages (/privacy and /privacy/staff). Empty = the built-in policy
+    // text bundled with the frontend (policyContent.js); a non-empty body
+    // replaces it wholesale. Edited under Settings → Content → Privacy pages.
+    privacy: {
+      guest: { updated: '', body: '' },
+      staff: { updated: '', body: '' },
+    },
     labels: {
       types: {
         issue: '⚠️ Something’s wrong',

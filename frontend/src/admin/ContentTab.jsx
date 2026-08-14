@@ -1,6 +1,7 @@
 import React, { useRef, useState } from 'react';
 import { api } from '../api';
 import { BRAND_DEFAULTS } from '../theme';
+import { DEFAULT_POLICY } from '../policyContent';
 
 // Settings → Content: every guest-facing word, label, page section, logo and
 // colour. Edits are local until the save bar PUTs the dirty sections.
@@ -197,6 +198,49 @@ export default function ContentTab({ s, patch, patchPath, applySettings, setToas
           <TextRow label="Send-rating button" value={track.sendRatingLabel} onChange={setTrack('sendRatingLabel')} />
           <TextRow label="Footer: new submission" value={track.newSubmissionLabel} onChange={setTrack('newSubmissionLabel')} />
         </div>
+      </Section>
+
+      <Section title="Privacy pages" hint="The guest privacy policy and the staff privacy notice.">
+        {[
+          ['guest', 'Guest privacy policy', '/privacy'],
+          ['staff', 'Staff privacy notice', '/privacy/staff'],
+        ].map(([key, label, path]) => {
+          const pol = (c.privacy || {})[key] || {};
+          const overridden = !!(pol.body || '').trim();
+          const setPol = (field) => (v) => patchPath('content', ['privacy', key, field], v);
+          return (
+            <div key={key} style={{ marginBottom: key === 'guest' ? 26 : 0 }}>
+              <div className="field-label" style={{ marginTop: 0, display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
+                {label}
+                <a href={path} target="_blank" rel="noreferrer" style={{ fontSize: 12 }}>View page ↗</a>
+              </div>
+              <p className="hint" style={{ marginTop: 2 }}>
+                Formatting: <code>## heading</code> · <code>- bullet</code> · <code>**bold**</code> · <code>*italic*</code> · <code>[link](https://…)</code>.
+                Leave the text empty to use the built-in policy that ships with WoodsVoice.
+              </p>
+              <TextRow label="Last updated (shown at the top of the page)" value={pol.updated}
+                onChange={setPol('updated')} placeholder={DEFAULT_POLICY[key].updated} />
+              <div className="form-col">
+                <label>Policy text</label>
+                <textarea className="input" style={{ minHeight: 240, fontSize: 13.5, lineHeight: 1.5 }}
+                  value={pol.body || ''}
+                  placeholder="Empty — the built-in policy is shown. Load it below to make edits."
+                  onChange={e => setPol('body')(e.target.value)} />
+              </div>
+              {overridden ? (
+                <button type="button" className="btn btn-danger-ghost btn-tiny"
+                  onClick={() => { setPol('body')(''); setPol('updated')(''); }}>
+                  Reset to built-in policy
+                </button>
+              ) : (
+                <button type="button" className="btn btn-ghost btn-small"
+                  onClick={() => setPol('body')(DEFAULT_POLICY[key].body)}>
+                  Load built-in text into the editor
+                </button>
+              )}
+            </div>
+          );
+        })}
       </Section>
     </>
   );
