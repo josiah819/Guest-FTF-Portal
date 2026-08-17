@@ -2,27 +2,25 @@
 
 **Scan. Tell us. We're on it.** — Guest feedback & request system for Muskoka Woods Schools & Retreats.
 
-Guests scan a QR code in their cabin or a common area and just **type what they need** — one text box, optional name, optional photo. The AI layer works out what kind of note it is, categorizes it, grades urgency, writes a one-line staff summary and routes it to the right department — respecting each department's **opening hours** (urgent items reroute to whoever's on; the rest wait politely with their SLA clock paused). The Guest Care team works from a dashboard with per-department scorecards, SLA compliance, trends, hotspot detection and AI insights.
+Guests scan a QR code in their cabin or a common area and just **type what they need** — one text box, optional name, optional photo. The note is delivered straight to **RAP (rap.mwprogram.com), Muskoka Woods’ central Report-A-Problem board**, which is the system of record: its AI triages every ticket (category, department, severity, guest mood, summary) and its staff work them. WoodsVoice is the guest-facing layer around that board — capture and delivery, the MW-code tracking page, guest status emails, and a read-only inbox + dashboard that sync the whole board back once a minute.
 
-## What's in v2
+## What's in v3
 
-- **Zero-friction guest form** — message + optional name + optional photo. The AI infers type, category, department and urgency. Every old picker still exists behind a settings toggle.
-- **Pluggable AI triage** — Anthropic API (Claude) **or** any OpenAI-compatible local endpoint (Ollama on an LXC, LM Studio, vLLM), switchable in **Settings → AI** with a test-connection button. Keyword matching remains the always-on fallback.
-- **Full RBAC** — custom roles with a per-permission checkbox matrix (14 permissions), per-user department membership, one-time temp passwords, immediate deactivation. Starter roles: Administrator, Department Lead, Staff, Viewer.
-- **Department hours & after-hours routing** — weekly hours per department, urgency-based rerouting to fallback departments, on-call escalation when every route is closed, held items released with a digest email at opening.
-- **Honest, robust SLA** — targets per department **and** per urgency; clocks start when the owning department opens; scheduler warns at 80% of the window and pages on breaches; median/p90 response times, compliance trends, and per-department scorecards.
+- **RAP is the database.** Tickets live on the central RAP board. Capture writes one durable queue row (payload + our MW code + guest extras) and a background sender delivers it; a sync poller pulls **every** board ticket — including ones submitted from other sources — into a local verbatim cache that the inbox, dashboard, tracking page and emails all read. No local triage, no taxonomy translation: RAP’s statuses, categories and departments appear exactly as RAP spells them.
+- **Zero-friction guest form** — message + optional name + optional photo. Guest picks (type, urgency, category), when enabled, travel to RAP as triage hints.
+- **Full RBAC** — custom roles with a per-permission checkbox matrix, per-user department membership (matched against RAP’s department labels for scoped inbox views), invite-based onboarding, Google sign-in.
 - **Everything editable** — every guest-facing word, label, page section, logo and brand colour lives in **Settings → Content**.
-- **Real email** — SMTP-backed notifications (new urgent items, SLA warnings/breaches, held-queue digests); without SMTP configured everything logs to the submission timeline instead.
-- **Guest email updates** — after sending a note, guests can leave an email address (thank-you screen or tracking page) and get branded emails as it moves along: sign-up confirmation, in progress, resolved. Toggleable in **Settings → Features**, templates editable with live preview in **Settings → Content → Guest update emails**, and the option only appears to guests once SMTP is configured. Test locally with `docker-compose.mailpit.yml` (catches all mail at http://localhost:8025).
+- **Guest email updates** — after sending a note, guests can leave an email address (thank-you screen or tracking page) and get branded emails as the board moves it along: sign-up confirmation, in progress, resolved. Templates editable with live preview in **Settings → Content → Guest update emails**; the option only appears to guests once SMTP is configured. Test locally with `docker-compose.mailpit.yml` (catches all mail at http://localhost:8025).
+- **Guest notes** — one-way messages RAP staff write for the guest sync back and appear on the tracking page.
 
 Built to match the vision in Cindy's email:
 
 | Ask | Where it lives |
 | --- | --- |
 | QR codes in cabins & common areas | **Admin → Locations & QR** — print-ready QR cards per location (with fallback URL printed under each code), form pre-fills the location |
-| AI categorizes submissions | Claude triages every submission (category, urgency, one-line summary); keyword fallback without an API key |
-| Route to departments / FTF | Category → department routing, plus the **RAP hand-off** — every note is queued and its raw text delivered to the central Report-A-Problem intake API (bearer key, automatic retry) |
-| Visibility into issues, trends, response times | Dashboard: volume, categories, locations, CSAT, avg first-response & resolution, SLA watch, hotspots, AI insights |
+| AI categorizes submissions | RAP’s board AI triages every ticket (category, department, severity, mood, summary); the verdict syncs back within a minute |
+| Route to departments / FTF | The **RAP hand-off** — every note is queued at capture and delivered to the central Report-A-Problem intake API (bearer key, automatic retry); routing happens on the board |
+| Visibility into issues, trends, response times | Dashboard over the synced board: volume, categories, departments, severity, guest mood, locations, CSAT, response/resolution times, hotspots, AI insights |
 | "Is anyone actually scanning the QR codes?" | **Visit tracking** — every guest-form open is counted (by location + QR/kiosk/web source, no cookies or personal data); the dashboard shows visits over time, arrival sources, and per-location scans vs. notes sent, flagging cards with zero scans |
 | "Start small, test the wording" | Every guest-facing string, every field requirement and every feature is editable/toggleable in **Admin → Settings** |
 | Don't create hotel-concierge expectations | Configurable **expectation banner** on the form (on by default) |
@@ -32,7 +30,7 @@ Built to match the vision in Cindy's email:
 | Ask | Where it lives |
 | --- | --- |
 | "Demo the app for Cindy" — how does it work? triage? workflow? notifications? analytics/SLA? | **`/how`** — a shareable, no-login page: the 5-step journey, how staff get notified, what's measured, plus a **5-minute live demo script** with a scannable QR |
-| "What is the measurement for success? Who monitors the SLA?" | Dashboard now shows **SLA compliance %** (first response & resolution within target) on an always-visible card that names the **SLA monitor** and their review cadence (Settings → General → Accountability) |
+| "What is the measurement for success? Who monitors the SLA?" | Dashboard shows first-action and resolution times measured from the board sync, per-department volume/open/median-resolution, and CSAT — all computed from RAP’s own ticket state |
 | "Reduce friction — shorten the form" | Message-first layout; optional contact fields collapse behind one tap; **returning guests are remembered** on their own device (never on kiosks); QR still pre-fills the location |
 | "Start with a test — what areas, which departments, how soon?" | The **pilot plan** on `/how`: Week 0 staff dry-run → Weeks 1–2 small pilot (3–5 cabins + dining hall) → Week 3 review & widen, with the five numbers to judge it by |
 
@@ -64,7 +62,7 @@ On phones, Guest Care HQ uses a bottom tab bar and can be added to the home scre
 
 **Default admin login:** `admin` / `WoodsVoice!demo` — change it in Settings → Account (or via `.env` before first boot).
 
-A realistic demo dataset loads on first boot so the dashboard isn't empty (`SEED_DEMO_DATA=false` to disable). To start truly fresh: `docker compose down -v && docker compose up -d --build`.
+Demo teammates seed on first boot (`SEED_DEMO_DATA=false` to disable); the inbox and dashboard fill from the RAP board on the first sync. To start truly fresh: `docker compose down -v && docker compose up -d --build`.
 
 ## Production — woodsvoice.com (Cloudflare Tunnel)
 
@@ -97,20 +95,22 @@ published, origins `https://woodsvoice.com` + `https://www.woodsvoice.com`).
 
 ## The AI layer
 
-Pick the engine in **Settings → AI** (test button included):
+Ticket triage happens on the RAP board, not here. The provider in **Settings → AI**
+powers only the dashboard’s **AI insights** card:
 
-- **Anthropic API** — set `ANTHROPIC_API_KEY` in `.env`; model editable (default `claude-haiku-4-5-20251001` — triage is an easy job, roughly a tenth of a cent per submission).
+- **Anthropic API** — set `ANTHROPIC_API_KEY` in `.env`; model editable (default `claude-haiku-4-5-20251001`).
 - **Local / self-hosted** — point the base URL at any OpenAI-compatible endpoint (e.g. Ollama: `http://10.0.12.x:11434`, model like `qwen3:4b`). Nothing leaves the network; `OPENAI_API_KEY` only if your endpoint needs auth.
-- **Keywords only** — no AI; also the automatic fallback whenever an AI call fails or times out.
-
-Triage decides **type** (issue/request/feedback/compliment), **category → department**, **urgency** (`low / normal / high / safety`) and a one-line staff summary. Guest choices (if the pickers are re-enabled) are never overridden. Everything runs async after the guest's submit — the form is never slowed by a model. Dashboard insights use the same provider.
+- **None** — insights stay off.
 
 ## RAP hand-off (central intake)
 
 WoodsVoice is the guest-facing **intake half** of RAP (“Report A Problem”), Muskoka
-Woods’ central ticketing system. Every new guest note is queued and its **raw text**
-delivered to the RAP intake API, where RAP’s own AI extracts cabin/department/severity
-and staff work the ticket. WoodsVoice keeps its full local copy either way.
+Woods’ central ticketing system and the **system of record for tickets**. Every new
+guest note is captured as one durable queue row and delivered to the RAP intake API,
+where RAP’s own AI extracts cabin/department/severity and staff work the ticket. The
+queue row is the permanent capture ledger: it keeps the MW tracking code, the photo
+file, the email-updates opt-in and the CSAT rating, and the `ticket_id` RAP returns
+at delivery links it to the synced board copy.
 
 - **Configure:** put the bearer key the RAP operator gives you in `.env` as
   `RAP_INGEST_KEY` (env only — never in the database, logs, or any browser; all
@@ -144,43 +144,41 @@ curl -sS -X POST https://rap.mwprogram.com/api/ingest \
   -d '{"text": "INTAKE-TEST: hello from WoodsVoice", "submitted_at": "2026-08-04T12:00:00Z"}'
 ```
 
-Demo-seed submissions never enter the queue — only real guest submissions are forwarded.
+## RAP board sync (the read half)
 
-## RAP mirror (status & triage, synced back)
+The hand-off is one half of the loop; the **sync** is the other — and it is the only
+source of ticket data WoodsVoice has. Once a minute (ETag-cheap; instantly after a
+delivery) the backend polls RAP's export API (`GET /api/export`, bearer key) and
+caches **every ticket on the board verbatim** in `rap_tickets`:
 
-The hand-off is one half of the loop; the **mirror** is the other. Once a minute the
-backend polls RAP's export API (`GET /api/export`, bearer key) and applies every linked
-ticket's state to the local record:
+- **No translation** — RAP's statuses (`open / in_progress / resolved / …`),
+  categories, departments, severity 1–5 and guest mood appear in the inbox and
+  dashboard exactly as RAP spells them; filter facets are learned from the data.
+- **Everything on the board** — tickets that arrived at RAP from other sources show
+  too, marked “from another source”; tickets submitted here carry their MW code,
+  guest details, photo and source channel from the capture ledger.
+- **Guest experience follows the board** — the `/t/MW-XXXXXX` tracking page, the
+  opt-in status emails (in progress / resolved) and the CSAT invite are all driven by
+  status changes the sync observes; **guest notes** RAP staff write for the guest
+  appear on the tracking page.
+- **History** — RAP's ticket history (routing decisions, staff notes) shows in the
+  inbox drawer as 🔁 entries.
+- **Read-only inbox** — ticket work (status, routing, notes) happens on the RAP
+  board, one click away from every row; changes sync back within a minute.
 
-- **Status** — RAP's `open / in_progress / resolved` maps to the local
-  `new / in_progress / resolved`, with the same side effects a staff change would have
-  (first-response and resolved stamps, a public timeline entry), so the guest tracking
-  page, CSAT invite, dashboard and SLA metrics all follow along automatically.
-- **Triage** — RAP's department (Maintenance / Housekeeping / Kitchen / Program) and
-  category (🌡️ Temperature, 🚿 Plumbing, …) map onto the local taxonomy; severity 1–5
-  maps to urgency (5 = safety, 4 = high). Guest mood and severity show in the inbox,
-  and every ticket links straight to its page on the RAP board.
-- **History** — RAP's ticket history (routing decisions, staff notes) mirrors into the
-  submission timeline as 🔁 entries.
-- **No double triage** — while the mirror is active, the local AI triage stands down:
-  RAP already triages every forwarded note, so WoodsVoice just reflects its verdict.
-  Notes read "Untriaged" for the minute or two until RAP's routing lands. Turn the
-  mirror off (Settings → Features) to get local Haiku triage back.
-
-Tickets are matched by the `ticket_id` RAP returns at delivery time (with our
-`MW-XXXXXX` code as a fallback when RAP echoes it back). Tickets RAP receives from
-other sources are ignored. The mirror reuses `RAP_INGEST_KEY`; if the RAP operator
-issues a separate read key, set `RAP_EXPORT_KEY`. If the key isn't authorized for the
-export API the mirror halts and says so in **Settings → Features**, where a **Test
-mirror** button probes the endpoint and reports exactly what came back.
+The sync reuses `RAP_INGEST_KEY`; if the RAP operator issues a separate read key, set
+`RAP_EXPORT_KEY`. If the key isn't authorized for the export API the sync halts and
+says so in **Settings → Features**, where a **Test sync** button probes the endpoint
+and reports exactly what came back (including whether the export carries the guest
+text). If RAP is briefly unreachable the site keeps serving the last synced state.
 
 ## Admin controls (Settings)
 
 - **Form fields** — every field (location, category picker, urgency, photo, name, email, phone, group) is `Off / Optional / Required`. Message is always required; the v2 default form is just message + name + photo.
-- **Features** — AI triage, AI insights, submission types, photo upload, urgency handling, tracking codes, CSAT ratings, guest email updates, kiosk mode, hotspot detection, SLA targets (global + per-urgency + warn-%), CSV export, QR generator, RAP hand-off, email notifications.
-- **AI** — provider picker + models + test connection.
+- **Features** — RAP delivery, RAP board sync (with live queue/sync readouts and the Test sync probe), AI insights, submission types, photo upload, guest urgency flag, tracking codes, CSAT ratings, guest email updates, kiosk mode, hotspot detection, CSV export, QR generator, visit tracking.
+- **AI** — insights provider picker + models.
 - **Content** — all guest-facing wording: form microcopy, tracking page, type/urgency/status labels, the whole `/how` page (journey, measures, demo script, pilot plan as editable lists), logos and brand colours.
-- **Categories & Departments** — fully editable; each category routes to a department. Departments carry **hours, after-hours policy, fallback chain, on-call person and SLA overrides** (🕐 Hours on each row).
+- **Categories & Departments** — the guest form’s category picker (sent to RAP as a hint) and the local department names used for department-scoped staff access, matched against RAP’s labels.
 - **Team** (own page) — users, roles and the permission matrix.
 - **Locations & QR** — manage locations, print the QR sheet.
 
@@ -189,14 +187,14 @@ mirror** button probes the endpoint and reports exactly what came back.
 ```
 woodsvoice/
 ├── docker-compose.yml      # db (Postgres 16) + backend (Node 20/Express) + frontend (nginx)
-├── backend/                # REST API, JWT auth, AI triage, metrics, seeds
+├── backend/                # REST API, JWT auth, metrics, seeds
 │   └── src/
 │       ├── index.js        # app entry, boot retry, error handling
-│       ├── db.js           # pool, schema apply, default settings, demo seed
-│       ├── classify.js     # Claude triage + keyword fallback, AI insights
-│       ├── metrics.js      # dashboard aggregations
-│       ├── rap.js          # RAP hand-off: durable queue + retrying sender
-│       ├── forward.js      # per-submission email notification
+│       ├── db.js           # pool, schema apply, default settings, seeds
+│       ├── rap.js          # RAP hand-off: capture ledger + retrying sender
+│       ├── rapSync.js      # RAP board sync: verbatim ticket cache + guest emails
+│       ├── classify.js     # AI insights
+│       ├── metrics.js      # dashboard aggregations over the board cache
 │       └── routes/         # public.js (guest), admin.js (authed)
 └── frontend/               # React 18 + Vite, served by nginx (proxies /api)
     └── src/
@@ -207,7 +205,7 @@ woodsvoice/
 - **Single origin:** nginx serves the SPA and proxies `/api` + `/uploads` to the backend — no CORS, works on any host/port.
 - **Data:** Postgres volumes `pgdata` (database) and `uploads` (guest photos) persist across rebuilds.
 - **Brand:** official Muskoka Woods palette (#1E5A64 / #A3CD42), League Gothic + Montserrat + Nunito Sans per [muskokabranding.com](https://muskokabranding.com/), self-hosted fonts and logos (works offline at camp).
-- **Safety-first inbox:** open safety-urgency items pin to the top of the inbox and trigger a dashboard alert.
+- **Safety-first inbox:** open severity-5 tickets pin to the top of the inbox and trigger a dashboard alert.
 
 ## Notes for production
 
