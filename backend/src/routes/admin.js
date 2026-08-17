@@ -4,15 +4,14 @@ const path = require('path');
 const { pool, getSettings, saveSettings, deepMerge } = require('../db');
 const { aw, clampStr, newFileName, publicOrigin } = require('../util');
 const { smtpEnabled } = require('../notify');
-const { EMAIL_KINDS, renderGuestEmail, notifyGuestStatus } = require('../guestUpdates');
+const { EMAIL_KINDS, renderGuestEmail } = require('../guestUpdates');
 const { requireAuth, login, loginGoogle, changePassword } = require('../auth');
 const { googleEnabled, GOOGLE_CLIENT_ID } = require('../google');
-const { attachActor, requirePerm, deptFilter, inDeptScope } = require('../rbac');
+const { attachActor, requirePerm } = require('../rbac');
 const { dashboardMetrics, insightsInput } = require('../metrics');
-const { generateInsights, testClassify, aiEnabled } = require('../classify');
-const { recomputeDueDates } = require('../routing');
+const { generateInsights, aiEnabled } = require('../classify');
 const { rapStatus } = require('../rap');
-const { rapMirrorStatus, probeMirror } = require('../rapMirror');
+const { rapSyncStatus, probeSync } = require('../rapSync');
 
 const router = express.Router();
 
@@ -45,7 +44,7 @@ router.get('/settings', aw(async (req, res) => {
 }));
 
 router.put('/settings', aw(async (req, res) => {
-  const allowed = ['general', 'fields', 'features', 'sla', 'integrations', 'accountability', 'content', 'ai'];
+  const allowed = ['general', 'fields', 'features', 'integrations', 'content', 'ai'];
   const patch = {};
   for (const key of allowed) if (req.body[key] && typeof req.body[key] === 'object') patch[key] = req.body[key];
 
@@ -65,23 +64,22 @@ router.put('/settings', aw(async (req, res) => {
   res.json({ settings: await saveSettings(patch) });
 }));
 
-// Delivery status of the RAP hand-off queue + mirror, for the Settings →
-// Features readout (and the inbox's board links). Never exposes the key —
-// just whether one is configured.
+// Delivery + board-sync health, for the Settings → Features readout (and the
+// inbox's board links). Never exposes the key — just whether one is configured.
 router.get('/rap/status', aw(async (req, res) => {
   const settings = await getSettings();
   res.json({
     enabled: settings.features.rapForward !== false,
     ...(await rapStatus()),
-    mirror: { enabled: settings.features.rapMirror !== false, ...(await rapMirrorStatus()) },
+    sync: { enabled: settings.features.rapMirror !== false, ...(await rapSyncStatus()) },
   });
 }));
 
 // One diagnostic fetch of RAP's export API — reports HTTP status and response
 // shape so a key/endpoint problem is debuggable from Settings. On success it
-// clears a mirror halt and kicks an immediate sync.
-router.post('/rap/mirror/test', requirePerm('settings.manage'), aw(async (req, res) => {
-  res.json(await probeMirror());
+// clears a sync halt and kicks an immediate sync.
+router.post('/rap/sync/test', requirePerm('settings.manage'), aw(async (req, res) => {
+  res.json(await probeSync());
 }));
 
 // Render one guest update email with sample data — the Content tab's preview.
@@ -96,20 +94,9 @@ router.post('/emails/preview', requirePerm('content.manage'), aw(async (req, res
     public_code: 'MW-4KQ7F2',
     guest_name: 'Alex',
     location: 'Cabin 4',
-    status: kind === 'resolved' ? 'resolved' : (kind === 'inProgress' ? 'in_progress' : 'new'),
+    status: kind === 'resolved' ? 'resolved' : (kind === 'inProgress' ? 'in_progress' : 'open'),
   };
   res.json(renderGuestEmail(kind, sample, settings, publicOrigin(req)));
-}));
-
-// Try the chosen (possibly unsaved) AI provider against a canned message.
-// Errors come back as { ok:false, error } so the UI can show them verbatim.
-router.post('/ai/test', requirePerm('settings.manage'), aw(async (req, res) => {
-  try {
-    const out = await testClassify(req.body?.ai);
-    res.json({ ok: true, ...out });
-  } catch (err) {
-    res.json({ ok: false, error: err.message });
-  }
 }));
 
 // ---------- branding ----------
@@ -131,237 +118,148 @@ router.post('/branding/logo', requirePerm('content.manage'), logoUpload.single('
   res.json({ settings });
 }));
 
-// ---------- submissions ----------
+// ---------- tickets (read-only window over the RAP board cache) ----------
+//
+// Ticket work — status changes, routing, notes — happens on the RAP board
+// itself and syncs back here. These endpoints only read the rap_tickets cache
+// joined to our capture ledger (rap_queue), which adds the guest-facing extras
+// RAP doesn't hold for us: MW code, photo, source channel, CSAT rating.
 
 const VIEW_SUBMISSIONS = ['submissions.view_all', 'submissions.view_dept'];
+
+// RAP department word → word to look for in our department names
+// (their "Kitchen" is our "Food Services").
+const DEPT_ALIASES = { kitchen: 'food' };
+
+// Department-scoped staff see the tickets whose RAP department label matches
+// one of their local departments (whole-word matching — a short label like
+// "it" must not claim "Facil-it-ies"). Returns null = unscoped, [] = nothing.
+async function rapDeptScope(actor) {
+  if (actor.perms.has('submissions.view_all')) return null;
+  const deptIds = actor.deptIds || [];
+  if (!deptIds.length) return [];
+  const { rows: depts } = await pool.query(
+    'SELECT name FROM departments WHERE id = ANY($1)', [deptIds]);
+  const { rows: labels } = await pool.query(
+    `SELECT DISTINCT department FROM rap_tickets WHERE department <> ''`);
+  const tokenSets = depts.map(d => d.name.toLowerCase().split(/[^a-z0-9]+/).filter(Boolean));
+  return labels.map(r => r.department).filter(label => {
+    const wants = label.toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
+    const aliases = wants.map(w => Object.hasOwn(DEPT_ALIASES, w) ? DEPT_ALIASES[w] : null).filter(Boolean);
+    return tokenSets.some(tokens =>
+      wants.every(w => tokens.includes(w)) || aliases.some(a => tokens.includes(a)));
+  });
+}
+
+// Shared projection + join for list/detail.
+const TICKET_FIELDS = `
+         rt.id, rt.status, rt.category, rt.department, rt.severity, rt.mood,
+         rt.building, rt.summary, rt.synced_at,
+         coalesce(nullif(rt.text, ''), q.payload->>'text', '') AS message,
+         coalesce(q.created_at, rt.rap_created_at, rt.first_seen_at) AS created_at,
+         coalesce(rt.rap_resolved_at, rt.observed_resolved_at) AS resolved_at,
+         rt.observed_response_at,
+         q.public_code, q.guest_name, coalesce(q.payload->>'group_name', '') AS group_name,
+         q.photo_path, q.source, q.rating, q.location_name,
+         (q.id IS NOT NULL) AS from_woodsvoice`;
+const TICKET_FROM = `
+    FROM rap_tickets rt
+    LEFT JOIN rap_queue q ON q.rap_ticket_id = rt.id`;
 
 router.get('/submissions', requirePerm(...VIEW_SUBMISSIONS), aw(async (req, res) => {
   const where = [];
   const params = [];
   let i = 1;
-  const { status, category, location, type, urgency, q } = req.query;
+  const { status, category, department, origin, severity, q } = req.query;
   if (status && status !== 'all') {
-    if (status === 'open') where.push(`s.status IN ('new','in_progress')`);
-    else { where.push(`s.status = $${i++}`); params.push(clampStr(status, 30)); }
+    if (status === 'active') where.push(`rt.status IN ('open','in_progress')`);
+    else { where.push(`rt.status = $${i++}`); params.push(clampStr(status, 80)); }
   }
-  if (category) { where.push(`c.slug = $${i++}`); params.push(clampStr(category, 60)); }
-  if (location) { where.push(`l.slug = $${i++}`); params.push(clampStr(location, 60)); }
-  if (type)     { where.push(`s.type = $${i++}`); params.push(clampStr(type, 30)); }
-  if (urgency)  { where.push(`s.urgency = $${i++}`); params.push(clampStr(urgency, 30)); }
-  if (req.query.department) {
-    where.push(`s.department_id = $${i++}`); params.push(parseInt(req.query.department, 10) || 0);
-  }
+  if (category)   { where.push(`rt.category = $${i++}`); params.push(clampStr(category, 120)); }
+  if (department) { where.push(`rt.department = $${i++}`); params.push(clampStr(department, 120)); }
+  if (severity)   { where.push(`rt.severity = $${i++}`); params.push(parseInt(severity, 10) || 0); }
+  if (origin === 'woodsvoice') where.push(`q.id IS NOT NULL`);
+  if (origin === 'other')      where.push(`q.id IS NULL`);
   if (q) {
-    where.push(`(s.message ILIKE $${i} OR s.public_code ILIKE $${i} OR s.guest_name ILIKE $${i} OR s.group_name ILIKE $${i})`);
+    where.push(`(coalesce(nullif(rt.text,''), q.payload->>'text', '') ILIKE $${i}
+      OR rt.summary ILIKE $${i} OR rt.building ILIKE $${i}
+      OR q.public_code ILIKE $${i} OR q.guest_name ILIKE $${i}
+      OR coalesce(q.payload->>'group_name','') ILIKE $${i})`);
     params.push(`%${clampStr(q, 100)}%`); i++;
   }
-  i = deptFilter(req.actor, 'submissions.view_all', where, params, i);
+  const scope = await rapDeptScope(req.actor);
+  if (scope !== null) { where.push(`rt.department = ANY($${i++})`); params.push(scope); }
+
   const page = Math.max(parseInt(req.query.page, 10) || 1, 1);
   const pageSize = 25;
   params.push(pageSize, (page - 1) * pageSize);
   const order = req.query.sort === 'oldest' ? 'ASC' : 'DESC';
 
-  const sql = `
-    SELECT s.id, s.public_code, s.type, s.status, s.urgency, s.message, s.ai_summary,
-           s.guest_name, s.group_name, s.photo_path, s.rating, s.source,
-           s.created_at, s.first_response_at, s.resolved_at,
-           c.name AS category, c.emoji AS category_emoji, c.slug AS category_slug,
-           d.name AS department, l.name AS location, s.location_text,
-           coalesce(rm.rap_ticket_id, rq.rap_ticket_id) AS rap_ticket_id,
-           rm.severity AS rap_severity, rm.mood AS rap_mood,
-           count(*) OVER()::int AS total_rows
-      FROM submissions s
-      LEFT JOIN categories c ON c.id = s.category_id
-      LEFT JOIN departments d ON d.id = s.department_id
-      LEFT JOIN locations l ON l.id = s.location_id
-      LEFT JOIN rap_mirror rm ON rm.submission_id = s.id
-      LEFT JOIN rap_queue rq ON rq.submission_id = s.id
-      ${where.length ? 'WHERE ' + where.join(' AND ') : ''}
-     ORDER BY (s.urgency = 'safety' AND s.status IN ('new','in_progress')) DESC, s.created_at ${order}
+  const sql = `SELECT ${TICKET_FIELDS},
+     count(*) OVER()::int AS total_rows
+     ${TICKET_FROM}
+     ${where.length ? 'WHERE ' + where.join(' AND ') : ''}
+     ORDER BY (rt.severity = 5 AND rt.status IN ('open','in_progress')) DESC, created_at ${order}
      LIMIT $${i++} OFFSET $${i++}`;
   const { rows } = await pool.query(sql, params);
   res.json({ rows, total: rows[0]?.total_rows || 0, page, pageSize });
 }));
 
-// Queue-health numbers for the inbox header tiles, scoped like the list.
+// Queue-health numbers for the inbox header tiles, plus the filter facets
+// (RAP's own status/category/department vocabulary, learned from the data).
 router.get('/submissions/stats', requirePerm(...VIEW_SUBMISSIONS), aw(async (req, res) => {
-  const where = [];
-  const params = [];
-  deptFilter(req.actor, 'submissions.view_all', where, params, 1);
-  const { rows } = await pool.query(
-    `SELECT
-       count(*) FILTER (WHERE s.status = 'new')::int AS new_count,
-       count(*) FILTER (WHERE s.status = 'in_progress')::int AS in_progress,
-       round((max(EXTRACT(EPOCH FROM (now() - s.created_at)) / 3600.0)
-         FILTER (WHERE s.status IN ('new','in_progress')))::numeric, 1) AS oldest_open_h,
-       round((percentile_cont(0.5) WITHIN GROUP (ORDER BY
-           EXTRACT(EPOCH FROM (s.first_response_at - coalesce(s.sla_start_at, s.created_at))) / 3600.0)
-         FILTER (WHERE s.first_response_at IS NOT NULL
-           AND s.created_at > now() - interval '7 days'))::numeric, 1) AS median_first_action_h,
-       count(*) FILTER (WHERE s.resolved_at > now() - interval '7 days')::int AS resolved_7d
-       FROM submissions s
-      ${where.length ? 'WHERE ' + where.join(' AND ') : ''}`,
-    params);
-  res.json(rows[0]);
+  const scope = await rapDeptScope(req.actor);
+  const where = scope === null ? '' : 'WHERE rt.department = ANY($1)';
+  const params = scope === null ? [] : [scope];
+  const [stats, facets] = await Promise.all([
+    pool.query(
+      `SELECT
+         count(*) FILTER (WHERE rt.status = 'open')::int AS new_count,
+         count(*) FILTER (WHERE rt.status = 'in_progress')::int AS in_progress,
+         round((max(EXTRACT(EPOCH FROM (now() - coalesce(q.created_at, rt.rap_created_at, rt.first_seen_at))) / 3600.0)
+           FILTER (WHERE rt.status IN ('open','in_progress')))::numeric, 1) AS oldest_open_h,
+         round((percentile_cont(0.5) WITHIN GROUP (ORDER BY
+             EXTRACT(EPOCH FROM (rt.observed_response_at - coalesce(q.created_at, rt.rap_created_at, rt.first_seen_at))) / 3600.0)
+           FILTER (WHERE rt.observed_response_at IS NOT NULL
+             AND coalesce(q.created_at, rt.rap_created_at, rt.first_seen_at) > now() - interval '7 days'))::numeric, 1) AS median_first_action_h,
+         count(*) FILTER (WHERE coalesce(rt.rap_resolved_at, rt.observed_resolved_at) > now() - interval '7 days')::int AS resolved_7d
+         FROM rap_tickets rt
+         LEFT JOIN rap_queue q ON q.rap_ticket_id = rt.id
+        ${where}`, params),
+    pool.query(
+      `SELECT
+         array(SELECT DISTINCT status FROM rap_tickets WHERE status <> '' ORDER BY 1) AS statuses,
+         array(SELECT DISTINCT category FROM rap_tickets WHERE category <> '' ORDER BY 1) AS categories,
+         array(SELECT DISTINCT department FROM rap_tickets WHERE department <> '' ORDER BY 1) AS departments`),
+  ]);
+  res.json({ ...stats.rows[0], facets: facets.rows[0] });
 }));
 
 router.get('/submissions/:id', requirePerm(...VIEW_SUBMISSIONS), aw(async (req, res) => {
   const id = parseInt(req.params.id, 10);
   const { rows } = await pool.query(
-    `SELECT s.*, c.name AS category, c.emoji AS category_emoji, d.name AS department, l.name AS location,
-            au.display_name AS assigned_name, rd.name AS rerouted_from,
-            coalesce(rm.rap_ticket_id, rq.rap_ticket_id) AS rap_ticket_id,
-            rm.severity AS rap_severity, rm.mood AS rap_mood,
-            rm.building AS rap_building, rm.synced_at AS rap_synced_at
-       FROM submissions s
-       LEFT JOIN categories c ON c.id = s.category_id
-       LEFT JOIN departments d ON d.id = s.department_id
-       LEFT JOIN locations l ON l.id = s.location_id
-       LEFT JOIN users au ON au.id = s.assigned_user_id
-       LEFT JOIN departments rd ON rd.id = s.rerouted_from_department_id
-       LEFT JOIN rap_mirror rm ON rm.submission_id = s.id
-       LEFT JOIN rap_queue rq ON rq.submission_id = s.id
-      WHERE s.id = $1`, [id]);
-  if (!rows.length || !inDeptScope(req.actor, 'submissions.view_all', rows[0].department_id)) {
+    `SELECT ${TICKET_FIELDS},
+         rt.history, rt.guest_notes, rt.rap_created_at, rt.first_seen_at, rt.last_seen_at,
+         coalesce(q.payload->>'guest_email', '') AS guest_email,
+         coalesce(q.payload->>'guest_phone', '') AS guest_phone,
+         coalesce(q.payload->>'location_slug', '') AS location_slug,
+         (q.updates_email IS NOT NULL AND q.updates_email <> '') AS updates_on,
+         q.rating_comment, q.status AS delivery_status, q.sent_at, q.last_error AS delivery_error
+      ${TICKET_FROM}
+      WHERE rt.id = $1`, [id]);
+  if (!rows.length) return res.status(404).json({ error: 'Not found' });
+  const scope = await rapDeptScope(req.actor);
+  if (scope !== null && !scope.includes(rows[0].department)) {
     return res.status(404).json({ error: 'Not found' });
   }
-  const { rows: events } = await pool.query(
-    `SELECT e.*, u.display_name AS admin_name FROM submission_events e
-      LEFT JOIN users u ON u.id = e.user_id
-     WHERE e.submission_id = $1 ORDER BY e.created_at`, [id]);
-  res.json({ submission: rows[0], events });
-}));
-
-const STATUSES = ['new', 'in_progress', 'resolved', 'closed'];
-const STATUS_LABEL = { new: 'New', in_progress: 'In progress', resolved: 'Resolved', closed: 'Closed' };
-
-router.patch('/submissions/:id', requirePerm(...VIEW_SUBMISSIONS), aw(async (req, res) => {
-  const id = parseInt(req.params.id, 10);
-  const { rows: existing } = await pool.query('SELECT * FROM submissions WHERE id = $1', [id]);
-  if (!existing.length || !inDeptScope(req.actor, 'submissions.view_all', existing[0].department_id)) {
-    return res.status(404).json({ error: 'Not found' });
-  }
-  const sub = existing[0];
-
-  // Which permissions does this particular patch need?
-  const wantsStatus = req.body.status && STATUSES.includes(req.body.status) && req.body.status !== sub.status;
-  const needed = new Set();
-  if (wantsStatus) {
-    const touchesClosed = ['resolved', 'closed'].includes(req.body.status) ||
-                          ['resolved', 'closed'].includes(sub.status);
-    needed.add(touchesClosed ? 'submissions.close' : 'submissions.respond');
-  }
-  if (req.body.departmentId !== undefined || req.body.categoryId !== undefined ||
-      req.body.urgency !== undefined || req.body.assignedUserId !== undefined) {
-    needed.add('submissions.assign');
-  }
-  for (const k of needed) {
-    if (!req.actor.perms.has(k)) {
-      return res.status(403).json({ error: 'You don’t have permission to do that.' });
-    }
-  }
-
-  const sets = [];
-  const params = [];
-  let i = 1;
-  const log = [];
-
-  if (wantsStatus) {
-    sets.push(`status = $${i++}`); params.push(req.body.status);
-    if (!sub.first_response_at && req.body.status !== 'new') {
-      sets.push(`first_response_at = now()`);
-    }
-    if (['resolved', 'closed'].includes(req.body.status) && !sub.resolved_at) {
-      sets.push(`resolved_at = now()`);
-    }
-    if (req.body.status === 'new') { sets.push('resolved_at = NULL'); }
-    log.push({ kind: 'status', detail: `Status changed to ${STATUS_LABEL[req.body.status]}`, isPublic: true });
-  }
-  if (req.body.departmentId !== undefined) {
-    const deptId = req.body.departmentId ? parseInt(req.body.departmentId, 10) : null;
-    sets.push(`department_id = $${i++}`); params.push(deptId);
-    if (deptId) {
-      const { rows: d } = await pool.query('SELECT name FROM departments WHERE id = $1', [deptId]);
-      log.push({ kind: 'assign', detail: `Assigned to ${d[0]?.name || 'department'}`, isPublic: false });
-    } else {
-      log.push({ kind: 'assign', detail: 'Unassigned', isPublic: false });
-    }
-  }
-  if (req.body.categoryId !== undefined) {
-    const catId = req.body.categoryId ? parseInt(req.body.categoryId, 10) : null;
-    sets.push(`category_id = $${i++}`); params.push(catId);
-    if (catId) {
-      const { rows: c } = await pool.query('SELECT name FROM categories WHERE id = $1', [catId]);
-      log.push({ kind: 'assign', detail: `Recategorized as ${c[0]?.name || 'category'}`, isPublic: false });
-    }
-  }
-  if (req.body.urgency && ['low', 'normal', 'high', 'safety'].includes(req.body.urgency)) {
-    sets.push(`urgency = $${i++}`); params.push(req.body.urgency);
-    log.push({ kind: 'assign', detail: `Urgency set to ${req.body.urgency}`, isPublic: false });
-  }
-  if (req.body.assignedUserId !== undefined) {
-    const userId = req.body.assignedUserId ? parseInt(req.body.assignedUserId, 10) : null;
-    sets.push(`assigned_user_id = $${i++}`); params.push(userId);
-    if (userId) {
-      const { rows: u } = await pool.query('SELECT display_name FROM users WHERE id = $1', [userId]);
-      log.push({ kind: 'assign', detail: `Assigned to ${u[0]?.display_name || 'a staff member'}`, isPublic: false });
-    } else {
-      log.push({ kind: 'assign', detail: 'Assignee cleared', isPublic: false });
-    }
-  }
-
-  if (sets.length) {
-    params.push(id);
-    await pool.query(`UPDATE submissions SET ${sets.join(', ')} WHERE id = $${i}`, params);
-    for (const entry of log) {
-      await pool.query(
-        `INSERT INTO submission_events (submission_id, kind, detail, is_public, user_id)
-         VALUES ($1,$2,$3,$4,$5)`, [id, entry.kind, entry.detail, entry.isPublic, req.actor.id]);
-    }
-    // First staff touch of any kind counts as first response.
-    await pool.query(
-      `UPDATE submissions SET first_response_at = now() WHERE id = $1 AND first_response_at IS NULL`, [id]);
-    // A human moved or regraded it: re-derive due dates, stop waiting on hours.
-    if (req.body.urgency !== undefined || req.body.departmentId !== undefined) {
-      await recomputeDueDates(id);
-    }
-    // Guest opted into email updates? Tell them — after the response, so a
-    // slow SMTP server never stalls the inbox UI.
-    if (wantsStatus) notifyGuestStatus(id, req.body.status, req);
-  }
-  res.json({ ok: true });
-}));
-
-// Active users, for assignee and on-call pickers. Any signed-in staff may see
-// the roster — it's names only, no roles or contact details.
-router.get('/assignees', aw(async (req, res) => {
-  const { rows } = await pool.query(
-    `SELECT id, display_name FROM users WHERE active ORDER BY lower(display_name)`);
-  res.json({ rows });
-}));
-
-router.post('/submissions/:id/notes', requirePerm('submissions.respond'), aw(async (req, res) => {
-  const id = parseInt(req.params.id, 10);
-  const { rows } = await pool.query('SELECT department_id FROM submissions WHERE id = $1', [id]);
-  if (!rows.length || !inDeptScope(req.actor, 'submissions.view_all', rows[0].department_id)) {
-    return res.status(404).json({ error: 'Not found' });
-  }
-  const note = clampStr(req.body.note, 2000);
-  if (!note) return res.status(400).json({ error: 'Note is empty.' });
-  await pool.query(
-    `INSERT INTO submission_events (submission_id, kind, detail, is_public, user_id)
-     VALUES ($1,'note',$2,false,$3)`, [id, note, req.actor.id]);
-  await pool.query(
-    `UPDATE submissions SET first_response_at = now() WHERE id = $1 AND first_response_at IS NULL`, [id]);
-  res.json({ ok: true });
+  res.json({ submission: rows[0] });
 }));
 
 // ---------- metrics & insights ----------
 
 router.get('/metrics', requirePerm('metrics.view_all', 'metrics.view_dept'), aw(async (req, res) => {
   res.json(await dashboardMetrics(req.query.days, {
-    actor: req.actor,
-    department: req.query.department,
+    department: req.query.department ? clampStr(req.query.department, 120) : null,
   }));
 }));
 
@@ -375,30 +273,24 @@ router.post('/insights', requirePerm('insights.run'), aw(async (req, res) => {
 router.get('/export.csv', requirePerm('export.csv'), aw(async (req, res) => {
   const settings = await getSettings();
   if (!settings.features.csvExport) return res.status(400).json({ error: 'CSV export is disabled in Settings.' });
-  const where = [];
-  const params = [];
-  deptFilter(req.actor, 'submissions.view_all', where, params, 1);
   const { rows } = await pool.query(
-    `SELECT s.public_code, s.created_at, s.type, s.status, s.urgency,
-            c.name AS category, d.name AS department,
-            au.display_name AS assigned_to,
-            coalesce(l.name, s.location_text) AS location,
-            s.message, s.ai_summary, s.triage_via,
-            s.guest_name, s.guest_email, s.guest_phone, s.updates_email, s.group_name,
-            s.sla_start_at, s.first_response_due_at, s.first_response_at,
-            s.resolution_due_at, s.resolved_at,
-            (s.response_breached_at IS NOT NULL) AS response_breached,
-            (s.resolution_breached_at IS NOT NULL) AS resolution_breached,
-            rd.name AS rerouted_from, s.held_until,
-            s.rating, s.source
-       FROM submissions s
-       LEFT JOIN categories c ON c.id = s.category_id
-       LEFT JOIN departments d ON d.id = s.department_id
-       LEFT JOIN users au ON au.id = s.assigned_user_id
-       LEFT JOIN departments rd ON rd.id = s.rerouted_from_department_id
-       LEFT JOIN locations l ON l.id = s.location_id
-      ${where.length ? 'WHERE ' + where.join(' AND ') : ''}
-      ORDER BY s.created_at DESC`, params);
+    `SELECT rt.id AS rap_ticket, q.public_code,
+            coalesce(q.created_at, rt.rap_created_at, rt.first_seen_at) AS created_at,
+            rt.status, rt.department, rt.category, rt.severity, rt.mood,
+            rt.building, q.location_name, rt.summary,
+            coalesce(nullif(rt.text,''), q.payload->>'text', '') AS message,
+            q.guest_name,
+            coalesce(q.payload->>'guest_email', '') AS guest_email,
+            coalesce(q.payload->>'guest_phone', '') AS guest_phone,
+            q.updates_email,
+            coalesce(q.payload->>'group_name', '') AS group_name,
+            rt.observed_response_at,
+            coalesce(rt.rap_resolved_at, rt.observed_resolved_at) AS resolved_at,
+            q.rating, q.source,
+            (q.id IS NOT NULL) AS from_woodsvoice
+       FROM rap_tickets rt
+       LEFT JOIN rap_queue q ON q.rap_ticket_id = rt.id
+      ORDER BY created_at DESC`);
   const cols = Object.keys(rows[0] || { empty: '' });
   const esc = (v) => v == null ? '' : `"${String(v instanceof Date ? v.toISOString() : v).replace(/"/g, '""')}"`;
   const csv = [cols.join(','), ...rows.map(r => cols.map(c => esc(r[c])).join(','))].join('\r\n');
@@ -458,75 +350,6 @@ function catalogRoutes(table, { mapIn, orderBy, hasSlug, remove }) {
 
 const slugify = (s) => clampStr(s, 80).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'item';
 
-// ---------- department hours & routing ----------
-
-const DAY_KEYS = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
-
-// {"mon":["08:00","20:00"],…}; invalid windows drop to closed; all-closed
-// (or null) means "no hours set" = always open. Overnight windows (start >
-// end) are rejected by the start<end check — one window per day, same-day.
-function cleanHours(input) {
-  if (input == null || typeof input !== 'object') return null;
-  const out = {};
-  let any = false;
-  for (const day of DAY_KEYS) {
-    const w = input[day];
-    if (Array.isArray(w) && w.length === 2 &&
-        /^([01]\d|2[0-3]):[0-5]\d$/.test(w[0]) && /^([01]\d|2[0-3]):[0-5]\d$/.test(w[1]) &&
-        w[0] < w[1]) {
-      out[day] = [w[0], w[1]];
-      any = true;
-    } else {
-      out[day] = null;
-    }
-  }
-  return any ? out : null;
-}
-
-router.patch('/departments/:id/routing', requirePerm('routing.manage'), aw(async (req, res) => {
-  const id = parseInt(req.params.id, 10);
-  const { rows: existing } = await pool.query('SELECT id FROM departments WHERE id = $1', [id]);
-  if (!existing.length) return res.status(404).json({ error: 'Not found' });
-
-  const b = req.body || {};
-  const sets = [];
-  const params = [];
-  let i = 1;
-
-  if ('hours' in b) { sets.push(`hours = $${i++}`); params.push(JSON.stringify(cleanHours(b.hours))); }
-  if ('afterHours' in b) {
-    if (!['hold', 'reroute', 'urgency_based'].includes(b.afterHours)) {
-      return res.status(400).json({ error: 'after-hours policy must be hold, reroute, or urgency_based.' });
-    }
-    sets.push(`after_hours = $${i++}`); params.push(b.afterHours);
-  }
-  if ('fallbackDepartmentId' in b) {
-    const fb = b.fallbackDepartmentId ? parseInt(b.fallbackDepartmentId, 10) : null;
-    if (fb === id) return res.status(400).json({ error: 'A department can’t fall back to itself.' });
-    sets.push(`fallback_department_id = $${i++}`); params.push(fb);
-  }
-  if ('onCallUserId' in b) {
-    sets.push(`on_call_user_id = $${i++}`);
-    params.push(b.onCallUserId ? parseInt(b.onCallUserId, 10) : null);
-  }
-  if ('slaResponseHours' in b) {
-    const v = b.slaResponseHours ? parseInt(b.slaResponseHours, 10) : null;
-    if (v !== null && !(v >= 1 && v <= 720)) return res.status(400).json({ error: 'SLA hours must be 1–720.' });
-    sets.push(`sla_response_hours = $${i++}`); params.push(v);
-  }
-  if ('slaResolutionHours' in b) {
-    const v = b.slaResolutionHours ? parseInt(b.slaResolutionHours, 10) : null;
-    if (v !== null && !(v >= 1 && v <= 720)) return res.status(400).json({ error: 'SLA hours must be 1–720.' });
-    sets.push(`sla_resolution_hours = $${i++}`); params.push(v);
-  }
-  if (!sets.length) return res.json({ ok: true });
-
-  params.push(id);
-  const { rows } = await pool.query(
-    `UPDATE departments SET ${sets.join(', ')} WHERE id = $${i} RETURNING *`, params);
-  res.json({ row: rows[0] });
-}));
-
 catalogRoutes('categories', {
   orderBy: 'sort, name',
   hasSlug: true,
@@ -549,18 +372,17 @@ catalogRoutes('locations', {
     sort: b.sort !== undefined ? parseInt(b.sort, 10) || 0 : (partial ? undefined : 99),
   }),
   // Locations really delete (deactivate already covers "hide but keep").
-  // History stays readable: location_text (stamped at capture) and
-  // visits.loc_slug survive, and the FKs null out. Backfill location_text
-  // for rows from installs that predate the capture-time stamp, then drop.
+  // History stays readable: rap_queue.location_name (stamped at capture) and
+  // visits.loc_slug survive.
   remove: async (id) => {
-    await pool.query(
-      `UPDATE submissions SET location_text = l.name
-         FROM locations l
-        WHERE l.id = $1 AND submissions.location_id = l.id AND submissions.location_text = ''`, [id]);
     await pool.query('DELETE FROM locations WHERE id = $1', [id]);
   },
 });
 
+// Departments still exist locally for two jobs: department-scoped viewing
+// (user_departments → RAP label matching) and the guest form's category →
+// department hints. Their routing/hours/SLA columns are legacy — ticket
+// routing happens on the RAP board.
 catalogRoutes('departments', {
   orderBy: 'sort, name',
   mapIn: (b, partial) => ({

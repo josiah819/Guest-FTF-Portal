@@ -2,7 +2,6 @@ const { Pool } = require('pg');
 const fs = require('fs');
 const path = require('path');
 const bcrypt = require('bcryptjs');
-const { newPublicCode } = require('./util');
 const { ROLE_SEEDS, PERMISSION_KEYS } = require('./permissions');
 
 const pool = new Pool({
@@ -41,53 +40,29 @@ const DEFAULT_SETTINGS = {
     category: 'off',
   },
   features: {
-    aiCategorization: true,   // AI categorizes, types, grades urgency; keyword fallback without a provider
     aiInsights: true,         // "Generate insights" card on the dashboard
-    submissionTypes: false,   // issue / request / feedback / compliment selector (AI infers type when off)
+    submissionTypes: false,   // issue / request / feedback / compliment selector (RAP's triage infers when off)
     photoUpload: true,
-    urgency: true,            // urgency handling + safety flagging (selector visibility is fields.urgency)
+    urgency: true,            // guest urgency selector (selector visibility is fields.urgency)
     tracking: true,           // public status page via tracking code
     csat: true,               // guest star-rating once resolved
     emailUpdates: true,       // guests may leave an email for status-update emails (hidden from guests until SMTP is configured)
     kioskMode: true,          // ?kiosk=1 large-format, auto-resetting form
     hotspots: true,           // repeat-issue detection per location+category
-    sla: true,                // response/resolution targets + overdue flags
     csvExport: true,
     qrGenerator: true,
     visitTracking: true,      // count guest-form opens (by location + source) for the dashboard
-    rapForward: true,         // queue each note for the central RAP intake API (delivers once RAP_INGEST_KEY is set)
-    rapMirror: true,          // pull status/triage/history back from the RAP board; local AI triage stands down while on
-    emailForward: false,      // notify integrations.notifyEmail per submission (needs SMTP env)
+    rapForward: true,         // deliver queued notes to the central RAP intake API (capture always queues; off = pause delivery)
+    rapMirror: true,          // sync the RAP board back into the local ticket cache (the inbox's data source)
   },
-  sla: {
-    firstResponseHours: 24,
-    resolutionHours: 72,
-    warnPct: 80,              // scheduler warns a department at this % of the window
-    // Per-urgency overrides (null = use the global numbers). Department
-    // overrides on the Departments tab beat these.
-    urgency: {
-      safety: { firstResponseHours: 2, resolutionHours: 12 },
-      high: { firstResponseHours: 8, resolutionHours: 24 },
-      normal: null,
-      low: null,
-    },
-  },
-  // Which engine triages submissions. Secrets stay in env (ANTHROPIC_API_KEY /
-  // OPENAI_API_KEY); everything here is safe to show in the admin UI.
+  // Which engine powers dashboard insights. Secrets stay in env
+  // (ANTHROPIC_API_KEY / OPENAI_API_KEY); everything here is safe to show in
+  // the admin UI.
   ai: {
     provider: 'anthropic',            // 'anthropic' | 'openai' (any OpenAI-compatible endpoint) | 'keywords'
     anthropicModel: process.env.AI_MODEL || 'claude-haiku-4-5-20251001',
     openaiBaseUrl: '',                // e.g. http://10.0.12.50:11434 (Ollama — /v1 appended automatically)
     openaiModel: '',                  // e.g. qwen3:4b
-  },
-  integrations: { notifyEmail: '' },
-  // Who owns what — shown on the dashboard SLA card,
-  // so "who monitors this?" always has a written answer.
-  accountability: {
-    systemOwner: 'Guest Services',
-    maintainer: 'Josiah (IT)',
-    slaMonitor: 'Guest Care lead',
-    reviewCadence: 'Inbox checked morning & afternoon · dashboard reviewed Fridays',
   },
   // Every guest-facing string, editable in Settings → Content. deepMerge
   // replaces arrays wholesale, so list editors always PUT complete arrays.
@@ -129,6 +104,7 @@ const DEFAULT_SETTINGS = {
       emptyNote: 'Nothing here yet — notes you send from this device will show up here.',
       backToListLabel: '← My submissions',
       beingSorted: 'Being sorted',
+      notesTitle: 'Notes from our team',
       ratingPrompt: 'How did we do?',
       ratingThanks: 'thanks for the feedback!',
       ratingCommentPlaceholder: 'Anything to add? (optional)',
@@ -229,22 +205,15 @@ async function saveSettings(data) {
   return merged;
 }
 
-// Weekly hours ({"mon":["08:00","20:00"],…}; null day = closed, null hours = 24/7).
-const week = (open, close, overrides = {}) => {
-  const out = {};
-  for (const d of ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun']) {
-    out[d] = overrides[d] !== undefined ? overrides[d] : [open, close];
-  }
-  return out;
-};
-
+// Departments exist locally for dept-scoped viewing (matched against RAP's
+// labels) and the guest form's category grouping — routing and hours live on
+// the RAP board.
 const SEED_DEPARTMENTS = [
-  { name: 'Facilities & Maintenance', sort: 1, hours: week('07:00', '20:00') },
-  { name: 'Housekeeping', sort: 2, hours: week('08:00', '16:00') },
-  { name: 'Food Services', sort: 3, hours: week('06:30', '19:00') },
-  { name: 'Program', sort: 4, hours: week('08:00', '21:00') },
-  // The safety net: longest hours, no fallback of its own (on-call covers the gap).
-  { name: 'Guest Services', sort: 5, hours: week('07:00', '23:00') },
+  { name: 'Facilities & Maintenance', sort: 1 },
+  { name: 'Housekeeping', sort: 2 },
+  { name: 'Food Services', sort: 3 },
+  { name: 'Program', sort: 4 },
+  { name: 'Guest Services', sort: 5 },
 ];
 
 const SEED_CATEGORIES = [
@@ -268,182 +237,8 @@ const SEED_LOCATIONS = [
   { slug: 'chapel',         name: 'Chapel',             area: 'Common Areas', sort: 25 },
 ];
 
-const DEMO_MESSAGES = [
-  { cat: 'maintenance',  type: 'issue',      msg: 'The shower in our cabin only runs cold water no matter how long we wait.', urg: 'high' },
-  { cat: 'maintenance',  type: 'issue',      msg: 'Light over the back bunks is flickering and buzzing all night.', urg: 'normal' },
-  { cat: 'maintenance',  type: 'issue',      msg: 'Screen door latch is broken so the door bangs in the wind.', urg: 'low' },
-  { cat: 'maintenance',  type: 'issue',      msg: 'There is a loose board on the steps up to the cabin — someone could trip.', urg: 'safety' },
-  { cat: 'housekeeping', type: 'request',    msg: 'Could we get a couple of extra blankets? It got pretty cold last night.', urg: 'normal' },
-  { cat: 'housekeeping', type: 'issue',      msg: 'Washroom is out of paper towel and soap.', urg: 'normal' },
-  { cat: 'housekeeping', type: 'request',    msg: 'We spilled juice on the floor — could someone bring a mop or we can do it ourselves?', urg: 'low' },
-  { cat: 'food',         type: 'feedback',   msg: 'One of our students has a severe nut allergy — just double checking tomorrow’s menu is safe.', urg: 'high' },
-  { cat: 'food',         type: 'compliment', msg: 'The butter chicken at dinner was unreal. Our whole group is still talking about it.', urg: 'low' },
-  { cat: 'food',         type: 'request',    msg: 'Could we get a gluten-free option at breakfast for two of our leaders?', urg: 'normal' },
-  { cat: 'program',      type: 'compliment', msg: 'Our group leader Mike was incredible on the high ropes today. Kids were buzzing.', urg: 'low' },
-  { cat: 'program',      type: 'request',    msg: 'Is there any chance we could swap archery for climbing tomorrow afternoon?', urg: 'normal' },
-  { cat: 'program',      type: 'feedback',   msg: 'Evening program ran late and our grade 6s were wiped for devotions.', urg: 'low' },
-  { cat: 'lost-found',   type: 'request',    msg: 'A student left a blue hoodie with a school crest at the waterfront around 3pm.', urg: 'normal' },
-  { cat: 'lost-found',   type: 'request',    msg: 'Looking for a retainer in a green case, probably near the dining hall.', urg: 'normal' },
-  { cat: 'other',        type: 'compliment', msg: 'Check-in was the smoothest we’ve had at any camp. Thank you!', urg: 'low' },
-  { cat: 'other',        type: 'issue',      msg: 'Wifi in the leaders’ lounge keeps dropping every few minutes.', urg: 'low' },
-  { cat: 'food',         type: 'issue',      msg: 'Juice machine at lunch was empty for most of our seating.', urg: 'low' },
-  { cat: 'housekeeping', type: 'issue',      msg: 'Found a wasp nest starting under the eaves outside the side door.', urg: 'safety' },
-  { cat: 'program',      type: 'compliment', msg: 'The campfire night was the highlight of our trip. Staff energy was amazing.', urg: 'low' },
-];
-
-async function seedDemoSubmissions(client) {
-  const cats = (await client.query('SELECT id, slug, department_id FROM categories')).rows;
-  const locs = (await client.query('SELECT id, slug, name FROM locations')).rows;
-  const bySlug = Object.fromEntries(cats.map(c => [c.slug, c]));
-  const guests = ['Sarah M.', 'Coach Daniels', 'Mr. Okafor', '', 'Jess (teacher)', '', 'Pastor Kim', ''];
-  const groups = ['Maplewood PS', 'St. Andrew’s College', 'Trinity Youth', 'Lakefield SS', ''];
-  const total = 46;
-
-  for (let i = 0; i < total; i++) {
-    const tpl = DEMO_MESSAGES[i % DEMO_MESSAGES.length];
-    const cat = bySlug[tpl.cat];
-    const loc = locs[(i * 7) % locs.length];
-    const daysAgo = Math.floor(Math.pow((i / total), 1.4) * 20); // denser recently
-    const hour = 8 + ((i * 5) % 12);
-    const created = new Date(Date.now() - daysAgo * 86400000);
-    created.setHours(hour, (i * 13) % 60, 0, 0);
-
-    // Older items resolved, mid-age in progress, newest still new
-    let status = 'new', firstResp = null, resolved = null;
-    if (daysAgo >= 2) {
-      status = 'resolved';
-      firstResp = new Date(created.getTime() + (1 + (i % 9)) * 3600000);
-      resolved = new Date(created.getTime() + (4 + (i % 40)) * 3600000);
-    } else if (daysAgo >= 1 || i % 3 === 0) {
-      status = 'in_progress';
-      firstResp = new Date(created.getTime() + (1 + (i % 6)) * 3600000);
-    }
-    const rating = status === 'resolved' && i % 2 === 0 ? 3 + (i % 3) : null;
-
-    // SLA columns mirror what routing would have computed (urgency defaults).
-    const targets = tpl.urg === 'safety' ? [2, 12] : tpl.urg === 'high' ? [8, 24] : [24, 72];
-    const respDue = new Date(created.getTime() + targets[0] * 3600000);
-    const resoDue = new Date(created.getTime() + targets[1] * 3600000);
-    const { rows } = await client.query(
-      `INSERT INTO submissions
-        (public_code, type, status, category_id, department_id, location_id, location_text,
-         message, urgency, guest_name, group_name, source, ai_processed,
-         rating, created_at, first_response_at, resolved_at,
-         triage_via, sla_start_at, first_response_due_at, resolution_due_at)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,true,$13,$14,$15,$16,$17,$14,$18,$19) RETURNING id`,
-      [newPublicCode(), tpl.type, status, cat.id, cat.department_id, loc.id, loc.name,
-       tpl.msg, tpl.urg, guests[i % guests.length], groups[i % groups.length],
-       i % 5 === 0 ? 'kiosk' : 'qr', rating, created, firstResp, resolved,
-       i % 6 === 0 ? 'keywords' : 'ai', respDue, resoDue]
-    );
-    const sid = rows[0].id;
-    await client.query(
-      `INSERT INTO submission_events (submission_id, kind, detail, is_public, created_at)
-       VALUES ($1,'created','Submission received',true,$2)`, [sid, created]);
-    if (firstResp) {
-      await client.query(
-        `INSERT INTO submission_events (submission_id, kind, detail, is_public, created_at)
-         VALUES ($1,'status','Status changed to In progress',true,$2)`, [sid, firstResp]);
-    }
-    if (resolved) {
-      await client.query(
-        `INSERT INTO submission_events (submission_id, kind, detail, is_public, created_at)
-         VALUES ($1,'status','Status changed to Resolved',true,$2)`, [sid, resolved]);
-    }
-  }
-
-  // Backfill breach/warn flags where the demo timeline actually missed targets,
-  // so the scorecards' breach column and the scheduler's idempotency line up.
-  await client.query(
-    `UPDATE submissions SET response_warned_at = first_response_due_at, response_breached_at = first_response_due_at
-      WHERE first_response_due_at < now()
-        AND (first_response_at IS NULL OR first_response_at > first_response_due_at)`);
-  await client.query(
-    `UPDATE submissions SET resolution_warned_at = resolution_due_at, resolution_breached_at = resolution_due_at
-      WHERE resolution_due_at < now()
-        AND (resolved_at IS NULL OR resolved_at > resolution_due_at)`);
-
-  // A couple of items assigned to the Facilities lead.
-  await client.query(
-    `UPDATE submissions SET assigned_user_id = (SELECT id FROM users WHERE username = 'jake')
-      WHERE id IN (SELECT id FROM submissions
-                    WHERE department_id = (SELECT id FROM departments WHERE name = 'Facilities & Maintenance')
-                      AND status = 'in_progress' LIMIT 2)`);
-
-  // Showcase: an overnight note held for Housekeeping's opening…
-  const heldOpen = await client.query(
-    `SELECT (CASE WHEN now()::time < '08:00' THEN date_trunc('day', now()) + interval '8 hours'
-                  ELSE date_trunc('day', now()) + interval '32 hours' END) AS opens`);
-  const opens = heldOpen.rows[0].opens;
-  const { rows: heldRow } = await client.query(
-    `INSERT INTO submissions
-      (public_code, type, status, category_id, department_id, location_id, location_text, message,
-       urgency, source, ai_processed, triage_via, created_at,
-       sla_start_at, first_response_due_at, resolution_due_at, held_until)
-     SELECT $1, 'request', 'new', c.id, c.department_id, l.id, l.name,
-            'Could we get two more pillows for the bottom bunks whenever housekeeping is around tomorrow?',
-            'low', 'qr', true, 'ai', now() - interval '2 hours',
-            $2, $2::timestamptz + interval '24 hours', $2::timestamptz + interval '72 hours', $2
-       FROM categories c, locations l
-      WHERE c.slug = 'housekeeping' AND l.slug = 'cabin-4' RETURNING id`,
-    [newPublicCode(), opens]);
-  if (heldRow.length) {
-    await client.query(
-      `INSERT INTO submission_events (submission_id, kind, detail, is_public, created_at) VALUES
-        ($1,'created','Submission received',true, now() - interval '2 hours'),
-        ($1,'ai','Triage (demo): routed to Housekeeping, type request, urgency low', false, now() - interval '2 hours'),
-        ($1,'route','Housekeeping is closed — held until opening; the SLA clock starts then', false, now() - interval '2 hours')`,
-      [heldRow[0].id]);
-  }
-
-  // Visit traffic to match: every demo submission implies a form-open a few
-  // minutes earlier, plus background opens that never became a note — so the
-  // dashboard's visit counts and scan-to-note conversion have a story to tell.
-  await client.query(
-    `INSERT INTO visits (location_id, loc_slug, source, visitor_key, created_at)
-     SELECT s.location_id, coalesce(l.slug, ''), s.source,
-            'demo-' || md5(s.id::text), s.created_at - interval '4 minutes'
-       FROM submissions s LEFT JOIN locations l ON l.id = s.location_id`);
-  for (let i = 0; i < total * 2; i++) {
-    const web = i % 6 === 0;                    // a few direct landings with no QR location
-    const loc = locs[(i * 5) % locs.length];
-    const daysAgo = Math.floor(Math.pow(((i % total) / total), 1.4) * 20);
-    const created = new Date(Date.now() - daysAgo * 86400000);
-    created.setHours(9 + ((i * 7) % 11), (i * 17) % 60, 0, 0);
-    await client.query(
-      `INSERT INTO visits (location_id, loc_slug, source, visitor_key, created_at)
-       VALUES ($1,$2,$3,$4,$5)`,
-      [web ? null : loc.id, web ? '' : loc.slug, web ? 'web' : 'qr',
-       // ~31 pseudo-devices across the extras, so unique visitors < visits
-       `demo-${(i * 7) % 31}`, created]);
-  }
-
-  // …and an overnight safety item rerouted to Guest Services.
-  const { rows: reroutedRow } = await client.query(
-    `INSERT INTO submissions
-      (public_code, type, status, category_id, department_id, location_id, location_text, message,
-       urgency, source, ai_processed, triage_via, created_at, rerouted_from_department_id,
-       sla_start_at, first_response_due_at, resolution_due_at, first_response_at)
-     SELECT $1, 'issue', 'in_progress', c.id,
-            (SELECT id FROM departments WHERE name = 'Guest Services'),
-            l.id, l.name,
-            'The railing on the cabin steps came loose tonight — someone could fall in the dark.',
-            'safety', 'qr', true, 'ai', now() - interval '90 minutes', c.department_id,
-            now() - interval '90 minutes', now() + interval '30 minutes', now() + interval '10.5 hours',
-            now() - interval '55 minutes'
-       FROM categories c, locations l
-      WHERE c.slug = 'maintenance' AND l.slug = 'cabin-7' RETURNING id`,
-    [newPublicCode()]);
-  if (reroutedRow.length) {
-    await client.query(
-      `INSERT INTO submission_events (submission_id, kind, detail, is_public, created_at) VALUES
-        ($1,'created','Submission received',true, now() - interval '90 minutes'),
-        ($1,'ai','Triage (demo): routed to Facilities & Maintenance, type issue, urgency safety', false, now() - interval '90 minutes'),
-        ($1,'route','Facilities & Maintenance is closed — rerouted to Guest Services', false, now() - interval '90 minutes'),
-        ($1,'status','Status changed to In progress',true, now() - interval '55 minutes')`,
-      [reroutedRow[0].id]);
-  }
-}
+// Demo ticket seeding retired with the local ticket store — tickets live on
+// the RAP board now; a fresh install inbox fills up on the first sync.
 
 async function migrateAndSeed() {
   const schema = fs.readFileSync(path.join(__dirname, 'schema.sql'), 'utf8');
@@ -513,13 +308,9 @@ async function migrateAndSeed() {
     const { rows: deptRows } = await client.query('SELECT count(*)::int AS n FROM departments');
     if (deptRows[0].n === 0) {
       for (const d of SEED_DEPARTMENTS) {
-        await client.query('INSERT INTO departments (name, sort, hours) VALUES ($1,$2,$3)',
-          [d.name, d.sort, d.hours ? JSON.stringify(d.hours) : null]);
+        await client.query('INSERT INTO departments (name, sort) VALUES ($1,$2)',
+          [d.name, d.sort]);
       }
-      // After-hours reroutes all point at Guest Services (longest hours).
-      await client.query(
-        `UPDATE departments SET fallback_department_id = (SELECT id FROM departments WHERE name = 'Guest Services')
-          WHERE name <> 'Guest Services'`);
       for (const c of SEED_CATEGORIES) {
         await client.query(
           `INSERT INTO categories (slug, name, emoji, department_id, sort)
@@ -546,9 +337,9 @@ async function migrateAndSeed() {
 
     // Demo teammates: one per starter role, so the Team page and dept scoping
     // have something to show. Same demo password as the admin account.
-    // Fresh installs only — an upgraded database (which has submissions but a
-    // lone admin) must never silently gain extra login-able accounts.
-    const { rows: preSubCount } = await client.query('SELECT count(*)::int AS n FROM submissions');
+    // Fresh installs only — an upgraded database (which has captured notes but
+    // a lone admin) must never silently gain extra login-able accounts.
+    const { rows: preSubCount } = await client.query('SELECT count(*)::int AS n FROM rap_queue');
     const { rows: userCount } = await client.query('SELECT count(*)::int AS n FROM users');
     if (preSubCount[0].n === 0 && userCount[0].n === 1 && (process.env.SEED_DEMO_DATA || 'true') === 'true') {
       const demoHash = bcrypt.hashSync(process.env.ADMIN_PASSWORD || 'WoodsVoice!demo', 10);
@@ -569,29 +360,8 @@ async function migrateAndSeed() {
             [rows[0].id, dept]);
         }
       }
-      await client.query(
-        `UPDATE departments SET on_call_user_id = (SELECT min(id) FROM users)
-          WHERE name = 'Guest Services' AND on_call_user_id IS NULL`);
       console.log('[seed] created demo teammates (jake / maria / cindy)');
     }
-
-    const { rows: subRows } = await client.query('SELECT count(*)::int AS n FROM submissions');
-    if (subRows[0].n === 0 && (process.env.SEED_DEMO_DATA || 'true') === 'true') {
-      await seedDemoSubmissions(client);
-      console.log('[seed] loaded demo submissions');
-    }
-
-    // SLA backfill: rows from before the hours-aware clock (or that slipped
-    // through routing) get wall-clock due dates from the global targets.
-    const { rows: slaSet } = await client.query('SELECT data FROM app_settings WHERE id = 1');
-    const slaCfg = slaSet[0]?.data?.sla || {};
-    await client.query(
-      `UPDATE submissions SET
-         sla_start_at = created_at,
-         first_response_due_at = created_at + make_interval(hours => $1),
-         resolution_due_at = created_at + make_interval(hours => $2)
-       WHERE sla_start_at IS NULL`,
-      [slaCfg.firstResponseHours || 24, slaCfg.resolutionHours || 72]);
 
     await client.query('COMMIT');
   } catch (e) {

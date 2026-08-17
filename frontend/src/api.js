@@ -77,25 +77,20 @@ export const api = {
   settings: () => request('/api/admin/settings', { auth: true }),
   saveSettings: (patch) => request('/api/admin/settings', { method: 'PUT', body: patch, auth: true }),
   rapStatus: () => request('/api/admin/rap/status', { auth: true }),
-  rapMirrorTest: () => request('/api/admin/rap/mirror/test', { method: 'POST', auth: true }),
+  rapSyncTest: () => request('/api/admin/rap/sync/test', { method: 'POST', auth: true }),
   uploadLogo: (slot, file) => {
     const fd = new FormData();
     fd.append('slot', slot);
     fd.append('logo', file);
     return request('/api/admin/branding/logo', { method: 'POST', formData: fd, auth: true });
   },
-  aiTest: (ai) => request('/api/admin/ai/test', { method: 'POST', body: { ai }, auth: true }),
   emailPreview: (kind, content) => request('/api/admin/emails/preview', { method: 'POST', body: { kind, content }, auth: true }),
   metrics: (days, department) =>
-    request(`/api/admin/metrics?days=${days}${department ? `&department=${department}` : ''}`, { auth: true }),
+    request(`/api/admin/metrics?days=${days}${department ? `&department=${encodeURIComponent(department)}` : ''}`, { auth: true }),
   insights: () => request('/api/admin/insights', { method: 'POST', auth: true }),
   submissions: (params) => request(`/api/admin/submissions?${new URLSearchParams(params)}`, { auth: true }),
   submissionStats: () => request('/api/admin/submissions/stats', { auth: true }),
   submission: (id) => request(`/api/admin/submissions/${id}`, { auth: true }),
-  updateSubmission: (id, patch) => request(`/api/admin/submissions/${id}`, { method: 'PATCH', body: patch, auth: true }),
-  addNote: (id, note) => request(`/api/admin/submissions/${id}/notes`, { method: 'POST', body: { note }, auth: true }),
-  assignees: () => request('/api/admin/assignees', { auth: true }),
-  updateDepartmentRouting: (id, body) => request(`/api/admin/departments/${id}/routing`, { method: 'PATCH', body, auth: true }),
   catalog: (table) => request(`/api/admin/${table}`, { auth: true }),
   catalogCreate: (table, body) => request(`/api/admin/${table}`, { method: 'POST', body, auth: true }),
   catalogUpdate: (table, id, body) => request(`/api/admin/${table}/${id}`, { method: 'PATCH', body, auth: true }),

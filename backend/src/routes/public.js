@@ -3,15 +3,17 @@ const multer = require('multer');
 const path = require('path');
 const crypto = require('crypto');
 const { pool, getSettings } = require('../db');
-const { aw, clampStr, newPublicCode, newFileName, rateLimit } = require('../util');
-const { classifySubmission } = require('../classify');
-const { routeSubmission } = require('../routing');
-const { forwardSubmission } = require('../forward');
+const { aw, clampStr, newPublicCode, newFileName, rateLimit, publicOrigin } = require('../util');
 const { enqueueRap } = require('../rap');
-const { rapMirrorOwnsTriage } = require('../rapMirror');
-const { emailUpdatesEnabled, sendGuestEmail } = require('../guestUpdates');
+const { emailUpdatesEnabled, sendGuestEmail, guestStatusLabel } = require('../guestUpdates');
 
 const router = express.Router();
+
+// Tickets live on the central RAP board — capture here writes ONE rap_queue
+// row (payload + guest extras) and the sender delivers it to RAP's intake.
+// The tracking endpoints join that capture row to the synced board copy
+// (rap_tickets), so a guest sees RAP's status without RAP ever being hit by
+// guest page views.
 
 const UPLOAD_DIR = process.env.UPLOAD_DIR || '/data/uploads';
 const storage = multer.diskStorage({
@@ -23,20 +25,6 @@ const upload = multer({
   limits: { fileSize: 8 * 1024 * 1024 },
   fileFilter: (req, file, cb) => cb(null, /^image\//.test(file.mimetype)),
 });
-
-// Absolute origin for links we hand to RAP (its staff open them from their own
-// network, so a relative path is useless there). PUBLIC_BASE_URL is
-// authoritative; falling back to the request's own origin means trusting the
-// Host header, so it only stands in when the host is a plain hostname — a
-// crafted Host must never turn into a link on someone else's board.
-const CONFIGURED_BASE = String(process.env.PUBLIC_BASE_URL || '').trim().replace(/\/+$/, '');
-const PLAIN_HOST = /^[a-z0-9.-]+(:\d{1,5})?$/i;
-
-function publicOrigin(req) {
-  if (CONFIGURED_BASE) return CONFIGURED_BASE;
-  const host = String(req.get('host') || '');
-  return PLAIN_HOST.test(host) ? `${req.protocol}://${host}` : '';
-}
 
 // Everything the guest form needs to render itself, shaped by admin settings.
 router.get('/config', aw(async (req, res) => {
@@ -57,7 +45,9 @@ router.get('/config', aw(async (req, res) => {
       csat: settings.features.csat,
       emailUpdates: emailUpdatesEnabled(settings),
       kioskMode: settings.features.kioskMode,
-      aiCategorization: settings.features.aiCategorization,
+      // The board's AI triages every note, so the "skip it — we'll sort it for
+      // you" hint is always truthful.
+      aiCategorization: true,
     },
     categories,
     locations,
@@ -122,10 +112,7 @@ router.post('/submissions', rateLimit({ windowMs: 5 * 60 * 1000, max: 12 }), upl
   }
 
   const types = ['issue', 'request', 'feedback', 'compliment'];
-  // 'issue' is only a placeholder when the guest didn't pick — the AI layer
-  // sets the real type afterwards (guestChoseType tells it not to).
   const guestChoseType = settings.features.submissionTypes && types.includes(b.type);
-  const type = guestChoseType ? b.type : 'issue';
 
   let location = null;
   if (locationSlug) {
@@ -133,80 +120,37 @@ router.post('/submissions', rateLimit({ windowMs: 5 * 60 * 1000, max: 12 }), upl
     location = rows[0] || null;
   }
 
-  // Guest may pick a category; otherwise the AI layer fills it in async.
-  let category = null;
+  // Guest may pick a category; RAP's triage sorts untagged notes itself.
   const categorySlug = clampStr(b.category, 120);
+  let category = null;
   if (categorySlug) {
-    const { rows } = await pool.query(
-      'SELECT id, name, department_id FROM categories WHERE slug = $1 AND active', [categorySlug]);
+    const { rows } = await pool.query('SELECT slug FROM categories WHERE slug = $1 AND active', [categorySlug]);
     category = rows[0] || null;
   }
 
   const urgencies = ['low', 'normal', 'high', 'safety'];
   const guestChoseUrgency = settings.features.urgency && fields.urgency !== 'off' && urgencies.includes(b.urgency);
-  const urgency = guestChoseUrgency ? b.urgency : 'normal';
 
   const source = b.source === 'kiosk' ? 'kiosk' : (b.source === 'web' ? 'web' : 'qr');
   const photoPath = (settings.features.photoUpload && fields.photo !== 'off' && req.file)
     ? `/uploads/${req.file.filename}` : '';
 
+  // The capture IS the queue row — everything the guest gave us travels to RAP
+  // (which owns the ticket from here on); the row keeps only what the guest
+  // experience needs back: our code, the photo file, and later the email
+  // opt-in and rating.
   const code = newPublicCode();
-  const { rows } = await pool.query(
-    `INSERT INTO submissions
-      (public_code, type, category_id, department_id, location_id, location_text, message,
-       urgency, guest_name, guest_email, guest_phone, group_name, photo_path, source)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
-     RETURNING id, created_at`,
-    [code, type, category?.id || null, category?.department_id || null,
-     location?.id || null, location?.name || '', message, urgency,
-     guestName, guestEmail, guestPhone, groupName, photoPath, source]);
-  const id = rows[0].id;
-
-  await pool.query(
-    `INSERT INTO submission_events (submission_id, kind, detail, is_public)
-     VALUES ($1,'created','Submission received',true)`, [id]);
-
-  // Queue the raw note for the central RAP intake at capture time — RAP runs
-  // its own triage, so this doesn't wait on ours. Never blocks the guest.
   const origin = publicOrigin(req);
-  await enqueueRap(settings, {
-    submissionId: id, text: message, submittedAt: rows[0].created_at,
-    code, location: location?.name || '', channel: source,
+  await enqueueRap({
+    text: message, submittedAt: new Date(),
+    code, location: location?.name || '', channel: source, photoPath,
     guestName, guestEmail, guestPhone, groupName, locationSlug,
-    guestType: guestChoseType ? type : '',
-    guestUrgency: guestChoseUrgency ? urgency : '',
+    guestType: guestChoseType ? b.type : '',
+    guestUrgency: guestChoseUrgency ? b.urgency : '',
     guestCategory: category ? categorySlug : '',
     photoUrl: origin && photoPath ? `${origin}${photoPath}` : '',
     trackingUrl: origin && settings.features.tracking ? `${origin}/t/${code}` : '',
   });
-
-  // Async pipeline: triage → hours-aware routing → forwarding. The guest never
-  // waits on any of it; routing runs even with AI triage off so the SLA clock
-  // and after-hours policies always apply.
-  const pipeline = async () => {
-    const rapOwnsTriage = rapMirrorOwnsTriage(settings);
-    if (rapOwnsTriage) {
-      // RAP triages every forwarded note itself and the mirror syncs its
-      // verdict back — a second local triage would double-spend and disagree.
-      // The note reads "Untriaged" until RAP's routing lands; when it does,
-      // the mirror runs the full hours-aware routing pass. (If the mirror is
-      // halted, rapMirrorOwnsTriage is false and local triage takes over.)
-      await pool.query(
-        `INSERT INTO submission_events (submission_id, kind, detail) VALUES ($1,'ai',$2)`,
-        [id, 'Triage delegated to the RAP board — its routing and severity sync back automatically']);
-    } else if (settings.features.aiCategorization) {
-      await classifySubmission(id, {
-        message, type,
-        locationName: location?.name,
-        guestChoseCategory: !!category,
-        guestChoseUrgency,
-        guestChoseType,
-      });
-    }
-    await routeSubmission(id, { awaitingRap: rapOwnsTriage });
-    await forwardSubmission(id);
-  };
-  pipeline().catch(err => console.error('[pipeline]', err.message));
 
   res.status(201).json({
     code,
@@ -223,21 +167,60 @@ router.get('/track/:code', aw(async (req, res) => {
   if (!settings.features.tracking) return res.status(403).json({ error: 'Tracking is not enabled.' });
   const code = clampStr(req.params.code, 20).toUpperCase();
   const { rows } = await pool.query(
-    `SELECT s.public_code, s.type, s.status, s.urgency, s.created_at, s.resolved_at, s.rating,
-            LEFT(s.message, 200) AS message,
-            (s.updates_email <> '') AS updates_on,
-            c.name AS category, c.emoji, l.name AS location
-       FROM submissions s
-       LEFT JOIN categories c ON c.id = s.category_id
-       LEFT JOIN locations l ON l.id = s.location_id
-      WHERE s.public_code = $1`, [code]);
+    `SELECT q.public_code, q.created_at, q.rating, q.location_name AS location,
+            q.status AS delivery_status, q.rap_ticket_id,
+            (q.updates_email <> '') AS updates_on,
+            LEFT(q.payload->>'text', 200) AS message,
+            coalesce(q.payload->>'guest_type', '') AS type,
+            t.status AS rap_status, t.category AS rap_category, t.guest_notes,
+            t.observed_response_at, t.observed_resolved_at, t.rap_resolved_at,
+            coalesce(t.rap_resolved_at, t.observed_resolved_at) AS resolved_at
+       FROM rap_queue q
+       LEFT JOIN rap_tickets t ON t.id = q.rap_ticket_id
+      WHERE q.public_code = $1`, [code]);
   if (!rows.length) return res.status(404).json({ error: 'We couldn’t find that submission.' });
+  const r = rows[0];
 
-  const { rows: events } = await pool.query(
-    `SELECT kind, detail, created_at FROM submission_events
-      WHERE submission_id = (SELECT id FROM submissions WHERE public_code = $1)
-        AND is_public ORDER BY created_at`, [code]);
-  res.json({ ...rows[0], events, csat: settings.features.csat, emailUpdates: emailUpdatesEnabled(settings) });
+  // Guest-facing status: RAP's own value, with "open" wearing the "new" label
+  // (and a note not yet on the board reads as received too).
+  const status = r.rap_status === 'open' ? 'new' : (r.rap_status || 'new');
+
+  // The public timeline, synthesized from capture + board state — RAP's
+  // internal history (staff notes, routing debates) is never shown to guests.
+  const events = [{ kind: 'created', detail: 'Submission received', created_at: r.created_at }];
+  if (r.rap_status && (r.observed_response_at || r.rap_status !== 'open')) {
+    events.push({
+      kind: 'status',
+      detail: `Status changed to ${guestStatusLabel(settings, 'in_progress')}`,
+      created_at: r.observed_response_at || r.created_at,
+    });
+  }
+  if (r.rap_status === 'resolved' || r.rap_status === 'closed') {
+    events.push({
+      kind: 'status',
+      detail: `Status changed to ${guestStatusLabel(settings, r.rap_status)}`,
+      created_at: r.rap_resolved_at || r.observed_resolved_at || r.created_at,
+    });
+  }
+
+  res.json({
+    public_code: r.public_code,
+    type: r.type,
+    status,
+    created_at: r.created_at,
+    resolved_at: r.resolved_at,
+    rating: r.rating,
+    message: r.message,
+    updates_on: r.updates_on,
+    category: r.rap_category || '',
+    location: r.location,
+    events,
+    // One-way messages RAP staff wrote for the guest, oldest first. Display
+    // only — there is deliberately no reply endpoint.
+    notes: r.guest_notes || [],
+    csat: settings.features.csat,
+    emailUpdates: emailUpdatesEnabled(settings),
+  });
 }));
 
 // Email updates opt-in. The public code is the capability, same trust model as
@@ -253,12 +236,12 @@ router.post('/track/:code/updates', rateLimit({ windowMs: 5 * 60 * 1000, max: 10
   if (!EMAIL_RE.test(email)) return res.status(400).json({ error: 'That email doesn’t look right — mind checking it?' });
 
   const { rows } = await pool.query(
-    `UPDATE submissions SET updates_email = $1 WHERE public_code = $2 RETURNING id`, [email, code]);
+    `UPDATE rap_queue q SET updates_email = $1
+      WHERE q.public_code = $2
+      RETURNING (SELECT t.status FROM rap_tickets t WHERE t.id = q.rap_ticket_id) AS rap_status`,
+    [email, code]);
   if (!rows.length) return res.status(404).json({ error: 'We couldn’t find that submission.' });
-  await pool.query(
-    `INSERT INTO submission_events (submission_id, kind, detail, is_public)
-     VALUES ($1,'notify','Email updates turned on',true)`, [rows[0].id]);
-  await sendGuestEmail('signup', rows[0].id, req);
+  await sendGuestEmail('signup', code, rows[0].rap_status || 'open', req);
   res.json({ ok: true });
 }));
 
@@ -266,13 +249,8 @@ router.post('/track/:code/updates', rateLimit({ windowMs: 5 * 60 * 1000, max: 10
 // always be able to opt out.
 router.delete('/track/:code/updates', aw(async (req, res) => {
   const code = clampStr(req.params.code, 20).toUpperCase();
-  const { rows } = await pool.query(
-    `UPDATE submissions SET updates_email = '' WHERE public_code = $1 AND updates_email <> '' RETURNING id`, [code]);
-  if (rows.length) {
-    await pool.query(
-      `INSERT INTO submission_events (submission_id, kind, detail, is_public)
-       VALUES ($1,'notify','Email updates turned off',true)`, [rows[0].id]);
-  }
+  await pool.query(
+    `UPDATE rap_queue SET updates_email = '' WHERE public_code = $1 AND updates_email <> ''`, [code]);
   res.json({ ok: true });
 }));
 
@@ -284,14 +262,15 @@ router.post('/track/:code/rating', aw(async (req, res) => {
   if (!(stars >= 1 && stars <= 5)) return res.status(400).json({ error: 'Rating must be 1–5 stars.' });
   const comment = clampStr(req.body.comment, 1000);
 
+  // Ratings open once RAP's board has the ticket resolved or closed.
   const { rows } = await pool.query(
-    `UPDATE submissions SET rating = $1, rating_comment = $2
-      WHERE public_code = $3 AND status IN ('resolved','closed') RETURNING id`,
+    `UPDATE rap_queue q SET rating = $1, rating_comment = $2
+       FROM rap_tickets t
+      WHERE q.public_code = $3 AND t.id = q.rap_ticket_id
+        AND t.status IN ('resolved','closed')
+      RETURNING q.id`,
     [stars, comment, code]);
   if (!rows.length) return res.status(400).json({ error: 'Ratings open once your submission is resolved.' });
-  await pool.query(
-    `INSERT INTO submission_events (submission_id, kind, detail, is_public)
-     VALUES ($1,'rating',$2,true)`, [rows[0].id, `Guest rated ${stars}/5`]);
   res.json({ ok: true });
 }));
 

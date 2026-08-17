@@ -227,15 +227,28 @@ CREATE TABLE IF NOT EXISTS visits (
 CREATE INDEX IF NOT EXISTS idx_visits_created ON visits (created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_visits_loc     ON visits (location_id, created_at);
 
--- RAP hand-off queue (rap.js): one row per submission awaiting delivery to the
--- central Report-A-Problem intake API. Rows are written at capture time and
--- drained by a background sender with retry/backoff, so notes survive crashes,
--- restarts and RAP downtime. payload is the exact JSON that gets POSTed
--- (text + submitted_at + extras) — built once so retries stay byte-identical.
+-- RAP capture ledger + delivery queue (rap.js). RAP's board is the system of
+-- record for tickets; this table is what WoodsVoice keeps at capture time: the
+-- exact payload awaiting delivery to RAP's intake API (drained by a background
+-- sender with retry/backoff, so notes survive crashes and RAP downtime), plus
+-- the guest-facing extras RAP doesn't own for us — our MW tracking code, the
+-- email-updates opt-in, the CSAT rating, and the local photo path. After
+-- delivery the row is the permanent link record: rap_ticket_id (from RAP's
+-- 201) joins it to the mirrored ticket in rap_tickets.
+-- submission_id is a legacy column from when tickets were stored locally;
+-- NULL on all new rows.
 CREATE TABLE IF NOT EXISTS rap_queue (
   id                SERIAL PRIMARY KEY,
-  submission_id     INTEGER NOT NULL UNIQUE REFERENCES submissions(id) ON DELETE CASCADE,
+  submission_id     INTEGER UNIQUE,
+  public_code       TEXT,                             -- our MW-XXXXXX tracking code
   payload           JSONB NOT NULL,
+  guest_name        TEXT NOT NULL DEFAULT '',
+  location_name     TEXT NOT NULL DEFAULT '',
+  photo_path        TEXT NOT NULL DEFAULT '',
+  source            TEXT NOT NULL DEFAULT 'qr',       -- qr | web | kiosk
+  updates_email     TEXT NOT NULL DEFAULT '',         -- guest opted into email updates
+  rating            INTEGER,                          -- 1..5 CSAT once RAP resolves it
+  rating_comment    TEXT NOT NULL DEFAULT '',
   status            TEXT NOT NULL DEFAULT 'pending',  -- pending | sent | failed (failed = RAP 400-rejected)
   attempts          INTEGER NOT NULL DEFAULT 0,
   next_attempt_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -248,7 +261,77 @@ CREATE TABLE IF NOT EXISTS rap_queue (
   created_at        TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+-- Upgrades: pre-cutover queues have the old shape. The FK to submissions must
+-- also stop cascading — a queue row is now the origin ledger and outlives any
+-- legacy submission cleanup.
+ALTER TABLE rap_queue ALTER COLUMN submission_id DROP NOT NULL;
+ALTER TABLE rap_queue ADD COLUMN IF NOT EXISTS public_code TEXT;
+ALTER TABLE rap_queue ADD COLUMN IF NOT EXISTS guest_name TEXT NOT NULL DEFAULT '';
+ALTER TABLE rap_queue ADD COLUMN IF NOT EXISTS location_name TEXT NOT NULL DEFAULT '';
+ALTER TABLE rap_queue ADD COLUMN IF NOT EXISTS photo_path TEXT NOT NULL DEFAULT '';
+ALTER TABLE rap_queue ADD COLUMN IF NOT EXISTS source TEXT NOT NULL DEFAULT 'qr';
+ALTER TABLE rap_queue ADD COLUMN IF NOT EXISTS updates_email TEXT NOT NULL DEFAULT '';
+ALTER TABLE rap_queue ADD COLUMN IF NOT EXISTS rating INTEGER;
+ALTER TABLE rap_queue ADD COLUMN IF NOT EXISTS rating_comment TEXT NOT NULL DEFAULT '';
+DO $$ BEGIN
+  IF EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'rap_queue_submission_id_fkey') THEN
+    ALTER TABLE rap_queue DROP CONSTRAINT rap_queue_submission_id_fkey;
+    ALTER TABLE rap_queue ADD CONSTRAINT rap_queue_submission_id_fkey
+      FOREIGN KEY (submission_id) REFERENCES submissions(id) ON DELETE SET NULL;
+  END IF;
+END $$;
+-- One-time backfill from legacy locally-stored submissions, so tracking codes
+-- handed out before the cutover keep resolving.
+UPDATE rap_queue q
+   SET public_code    = s.public_code,
+       guest_name     = s.guest_name,
+       location_name  = coalesce(l.name, s.location_text, ''),
+       photo_path     = s.photo_path,
+       source         = s.source,
+       updates_email  = s.updates_email,
+       rating         = s.rating,
+       rating_comment = s.rating_comment,
+       created_at     = s.created_at
+  FROM submissions s LEFT JOIN locations l ON l.id = s.location_id
+ WHERE q.submission_id = s.id AND q.public_code IS NULL;
+
 CREATE INDEX IF NOT EXISTS idx_rap_queue_due ON rap_queue (next_attempt_at) WHERE status = 'pending';
+CREATE UNIQUE INDEX IF NOT EXISTS rap_queue_code_key ON rap_queue (public_code) WHERE public_code IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_rap_queue_ticket ON rap_queue (rap_ticket_id) WHERE rap_ticket_id IS NOT NULL;
+
+-- The read half: a verbatim cache of RAP's board, refreshed by rapSync.js from
+-- GET /api/export. RAP's statuses, categories and departments land here as RAP
+-- spells them — no mapping onto any local taxonomy. Rows are disposable cache
+-- (safe to truncate; the next sync rebuilds), EXCEPT the observed_* columns,
+-- which are stamped by the poller the first time it SEES a transition — they
+-- back response/resolution metrics even when the export carries no timestamps.
+CREATE TABLE IF NOT EXISTS rap_tickets (
+  id                   BIGINT PRIMARY KEY,             -- RAP's ticket id
+  status               TEXT NOT NULL DEFAULT '',       -- RAP's own value: open | in_progress | resolved | …
+  department           TEXT NOT NULL DEFAULT '',       -- RAP's own labels, verbatim
+  category             TEXT NOT NULL DEFAULT '',
+  severity             INTEGER,                        -- 1..5 per RAP's triage
+  mood                 INTEGER,                        -- 1 (happy) .. 5 (extremely upset)
+  building             TEXT NOT NULL DEFAULT '',
+  summary              TEXT NOT NULL DEFAULT '',
+  text                 TEXT NOT NULL DEFAULT '',       -- guest text, when the export carries it
+  history              JSONB NOT NULL DEFAULT '[]',    -- [{text, at}] as parsed from the export
+  guest_notes          JSONB NOT NULL DEFAULT '[]',    -- [{at, text}] one-way messages for the guest, oldest first
+  raw                  JSONB,
+  rap_created_at       TIMESTAMPTZ,
+  rap_updated_at       TIMESTAMPTZ,
+  rap_resolved_at      TIMESTAMPTZ,
+  observed_response_at TIMESTAMPTZ,                    -- first sync where status ≠ open
+  observed_resolved_at TIMESTAMPTZ,                    -- first sync where status = resolved/closed
+  first_seen_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
+  last_seen_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
+  synced_at            TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+ALTER TABLE rap_tickets ADD COLUMN IF NOT EXISTS guest_notes JSONB NOT NULL DEFAULT '[]';
+
+CREATE INDEX IF NOT EXISTS idx_rap_tickets_status  ON rap_tickets (status);
+CREATE INDEX IF NOT EXISTS idx_rap_tickets_created ON rap_tickets (rap_created_at DESC);
 
 -- RAP mirror (rapMirror.js): the latest known state of each forwarded note's
 -- ticket on the central RAP board, pulled back by the mirror poller. One row

@@ -3,34 +3,20 @@ import { useSearchParams } from 'react-router-dom';
 import { api, getToken } from '../api';
 import { useActor } from './AdminApp';
 
-// Ticket changes (status, routing, notes) happen on the central RAP board —
-// this inbox is a read-only window over what guests submitted here.
-
-const STATUSES = [
-  { id: 'new', label: 'New' },
-  { id: 'in_progress', label: 'In progress' },
-  { id: 'resolved', label: 'Resolved' },
-  { id: 'closed', label: 'Closed' },
-];
-
-const SEG = [
-  { id: 'open', label: 'Open' },
-  { id: 'new', label: 'New' },
-  { id: 'in_progress', label: 'In progress' },
-  { id: 'resolved', label: 'Resolved' },
-  { id: 'closed', label: 'Closed' },
-  { id: 'all', label: 'All' },
-];
+// The RAP board is the system of record — this inbox is a read-only window
+// over its synced ticket cache. Statuses, categories and departments appear
+// exactly as RAP spells them; ticket work happens on the board and syncs back
+// within a minute.
 
 const STATUS_CHIP = {
-  new: { label: 'New', cls: 'st-new' },
+  open: { label: 'New', cls: 'st-new' },
   in_progress: { label: 'In progress', cls: 'st-prog' },
   resolved: { label: 'Resolved', cls: 'st-done' },
   closed: { label: 'Closed', cls: 'st-closed' },
 };
 
-// Departments Cindy is likely to have keep their signature colour; anything
-// else cycles through the same family so every spine stays distinct.
+// Labels RAP is likely to use keep their signature colour; anything else
+// cycles through the same family so every spine stays distinct.
 const DEPT_KNOWN = {
   housekeeping: '#2A78D6',
   maintenance: '#EB6834',
@@ -50,6 +36,13 @@ const MOOD = {
   5: ['😡', 'Extremely upset'],
 };
 
+// RAP labels are slugs ("food_services") — prettify for display only, never
+// for filtering (filters must send the verbatim value back).
+const pretty = (s) => String(s || '').replace(/_/g, ' ').replace(/^\w/, c => c.toUpperCase());
+
+const statusChip = (status) =>
+  STATUS_CHIP[status] || { label: pretty(status), cls: 'st-new' };
+
 function timeAgo(date) {
   const s = (Date.now() - new Date(date).getTime()) / 1000;
   if (s < 3600) return `${Math.max(1, Math.floor(s / 60))}m ago`;
@@ -60,7 +53,7 @@ function timeAgo(date) {
 function waitAge(r) {
   const h = (Date.now() - new Date(r.created_at).getTime()) / 3600000;
   const label = h < 1 ? `${Math.max(1, Math.floor(h * 60))}m` : h < 48 ? `${Math.floor(h)}h` : `${Math.floor(h / 24)}d`;
-  const isOpen = ['new', 'in_progress'].includes(r.status);
+  const isOpen = ['open', 'in_progress'].includes(r.status);
   const cls = isOpen && h >= 12 ? 'age-late' : isOpen && h >= 4 ? 'age-warn' : '';
   return { label, cls };
 }
@@ -73,10 +66,6 @@ function fmtHours(v) {
   if (v == null) return '0h';
   if (v >= 48) return `${Math.round(v / 24)}d`;
   return `${Math.round(v * 10) / 10}h`;
-}
-
-function fmtWhen(ts) {
-  return new Date(ts).toLocaleString('en-CA', { weekday: 'short', hour: 'numeric', minute: '2-digit', month: 'short', day: 'numeric' });
 }
 
 function Drawer({ id, onClose, boardBase }) {
@@ -94,33 +83,27 @@ function Drawer({ id, onClose, boardBase }) {
   );
 
   const s = data.submission;
+  const chip = statusChip(s.status);
+  const history = Array.isArray(s.history) ? s.history : [];
+  const guestNotes = Array.isArray(s.guest_notes) ? s.guest_notes : [];
   return (
     <>
       <div className="drawer-mask" onClick={onClose} />
-      <aside className="drawer" role="dialog" aria-label={`Submission ${s.public_code}`}>
+      <aside className="drawer" role="dialog" aria-label={`Ticket ${s.public_code || `#${s.id}`}`}>
         <button className="close" onClick={onClose} aria-label="Close">✕</button>
-        <div className="kicker" style={{ color: 'var(--orange)' }}>{s.public_code} · {timeAgo(s.created_at)}</div>
-        <h2 className="display">{s.category_emoji || '📝'} {s.category || 'Uncategorized'}</h2>
+        <div className="kicker" style={{ color: 'var(--orange)' }}>
+          {s.public_code ? `${s.public_code} · ` : ''}RAP #{s.id} · {timeAgo(s.created_at)}
+        </div>
+        <h2 className="display">🏷 {s.category ? pretty(s.category) : 'Uncategorized'}</h2>
         <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-          <span className={`badge t-${s.type}`}>{s.type}</span>
-          <span className={`badge u-${s.urgency}`}>{s.urgency}</span>
-          <span className={`badge s-${s.status}`}>{STATUSES.find(x => x.id === s.status)?.label}</span>
+          <span className={`badge s-${s.status}`}>{chip.label}</span>
+          {s.severity && <span className={`badge ${s.severity >= 5 ? 'u-safety' : s.severity >= 4 ? 'u-high' : 'u-normal'}`}>severity {s.severity}/5</span>}
+          {s.mood && MOOD[s.mood] && <span className="badge">{MOOD[s.mood][0]} {MOOD[s.mood][1]}</span>}
+          {!s.from_woodsvoice && <span className="badge">from another source</span>}
         </div>
 
-        <div className="msg-full">{s.message}</div>
-        {s.ai_summary && <div className="ai-line"><span>✨</span><span><strong>AI summary:</strong> {s.ai_summary}</span></div>}
-
-        {(s.held_until || s.rerouted_from || (s.first_response_due_at && !s.first_response_at && ['new', 'in_progress'].includes(s.status))) && (
-          <div className="route-info">
-            {s.held_until && <span>⏸ Held for opening — SLA clock starts {fmtWhen(s.held_until)}</span>}
-            {s.rerouted_from && <span>🧭 Rerouted from {s.rerouted_from} (after hours)</span>}
-            {!s.held_until && s.first_response_due_at && !s.first_response_at && ['new', 'in_progress'].includes(s.status) && (
-              <span className={new Date(s.first_response_due_at) < new Date() ? 'overdue' : ''}>
-                ⏱ First response due {fmtWhen(s.first_response_due_at)}
-              </span>
-            )}
-          </div>
-        )}
+        {s.message && <div className="msg-full">{s.message}</div>}
+        {s.summary && <div className="ai-line"><span>✨</span><span><strong>RAP summary:</strong> {s.summary}</span></div>}
         {s.photo_path && (
           <a href={s.photo_path} target="_blank" rel="noreferrer">
             <img src={s.photo_path} alt="Guest photo" style={{ borderRadius: 12, maxHeight: 220 }} />
@@ -128,38 +111,50 @@ function Drawer({ id, onClose, boardBase }) {
         )}
 
         <dl className="kv">
-          {s.rap_ticket_id && (
-            <>
-              <dt>RAP ticket</dt>
-              <dd>
-                #{s.rap_ticket_id}
-                {s.rap_mood && MOOD[s.rap_mood] && <> · {MOOD[s.rap_mood][0]} {MOOD[s.rap_mood][1]}</>}
-                {s.rap_severity && <> · severity {s.rap_severity}/5</>}
-                {boardBase && (
-                  <> · <a href={`${boardBase}/tickets/${s.rap_ticket_id}`} target="_blank" rel="noreferrer">open on the RAP board ↗</a></>
-                )}
-                {s.rap_synced_at && <span className="muted"> · synced {timeAgo(s.rap_synced_at)}</span>}
-              </dd>
-            </>
-          )}
-          <dt>Location</dt><dd>{s.location || s.location_text || '—'}</dd>
-          <dt>Department</dt><dd>{s.department || 'Untriaged'}</dd>
-          <dt>Assigned to</dt><dd>{s.assigned_name || 'Nobody'}</dd>
+          <dt>RAP ticket</dt>
+          <dd>
+            #{s.id}
+            {boardBase && (
+              <> · <a href={`${boardBase}/tickets/${s.id}`} target="_blank" rel="noreferrer">open on the RAP board ↗</a></>
+            )}
+            {s.synced_at && <span className="muted"> · synced {timeAgo(s.synced_at)}</span>}
+          </dd>
+          <dt>Location</dt><dd>{s.building || s.location_name || '—'}</dd>
+          <dt>Department</dt><dd>{s.department ? pretty(s.department) : 'Untriaged'}</dd>
           <dt>Guest</dt><dd>{s.guest_name || 'Anonymous'}{s.group_name ? ` · ${s.group_name}` : ''}</dd>
           {(s.guest_email || s.guest_phone) && <><dt>Contact</dt><dd>{[s.guest_email, s.guest_phone].filter(Boolean).join(' · ')}</dd></>}
-          <dt>Source</dt><dd>{s.source.toUpperCase()}</dd>
+          {s.from_woodsvoice && (
+            <>
+              <dt>Source</dt><dd>WoodsVoice · {String(s.source || 'qr').toUpperCase()}
+                {s.updates_on ? ' · guest gets email updates' : ''}</dd>
+              <dt>Delivery</dt><dd>{s.delivery_status === 'sent' ? `delivered ${timeAgo(s.sent_at)}` : s.delivery_status}
+                {s.delivery_error ? ` — ${s.delivery_error}` : ''}</dd>
+            </>
+          )}
           {s.rating && <><dt>Guest rating</dt><dd>{'★'.repeat(s.rating)}{s.rating_comment ? ` — “${s.rating_comment}”` : ''}</dd></>}
         </dl>
 
-        <div className="field-label">Timeline & notes</div>
+        {guestNotes.length > 0 && (
+          <>
+            <div className="field-label">Messages to the guest</div>
+            <ul className="timeline">
+              {guestNotes.map((n, i) => (
+                <li key={i}>
+                  <div style={{ fontSize: 13.5 }}>💬 {n.text}</div>
+                  {n.at && <div className="when">{new Date(n.at).toLocaleString('en-CA', { dateStyle: 'medium', timeStyle: 'short' })}</div>}
+                </li>
+              ))}
+            </ul>
+          </>
+        )}
+
+        <div className="field-label">Board history</div>
+        {history.length === 0 && <p className="muted" style={{ fontSize: 13.5 }}>Nothing yet — history syncs from the RAP board.</p>}
         <ul className="timeline">
-          {data.events.map(ev => (
-            <li key={ev.id}>
-              <div style={{ fontSize: 13.5, fontWeight: ev.kind === 'note' ? 400 : 600 }}>
-                {ev.kind === 'note' ? <>📝 {ev.detail}</> : ev.kind === 'rap' ? <>🔁 {ev.detail}</> : ev.detail}
-                {ev.admin_name && <span className="muted"> — {ev.admin_name}</span>}
-              </div>
-              <div className="when">{new Date(ev.created_at).toLocaleString('en-CA', { dateStyle: 'medium', timeStyle: 'short' })}</div>
+          {history.map((ev, i) => (
+            <li key={i}>
+              <div style={{ fontSize: 13.5 }}>🔁 {ev.text}</div>
+              {ev.at && <div className="when">{new Date(ev.at).toLocaleString('en-CA', { dateStyle: 'medium', timeStyle: 'short' })}</div>}
             </li>
           ))}
         </ul>
@@ -177,18 +172,15 @@ export default function Submissions() {
   const [openId, setOpenId] = useState(null);
   const [openRowId, setOpenRowId] = useState(null);
   const [stats, setStats] = useState(null);
-  const [departments, setDepartments] = useState([]);
-  const [categories, setCategories] = useState([]);
-  const [locations, setLocations] = useState([]);
   const [settings, setSettings] = useState(null);
   const [rap, setRap] = useState(null);
 
   const filters = {
-    status: searchParams.get('status') || 'open',
+    status: searchParams.get('status') || 'active',
     category: searchParams.get('category') || '',
-    location: searchParams.get('location') || '',
-    type: searchParams.get('type') || '',
-    urgency: searchParams.get('urgency') || '',
+    department: searchParams.get('department') || '',
+    severity: searchParams.get('severity') || '',
+    origin: searchParams.get('origin') || '',
     q: searchParams.get('q') || '',
     sort: searchParams.get('sort') || '',
   };
@@ -201,14 +193,8 @@ export default function Submissions() {
   }
 
   useEffect(() => {
-    api.catalog('departments').then(d => setDepartments(d.rows));
-    api.catalog('categories').then(d => setCategories(d.rows));
-    api.catalog('locations').then(d => setLocations(d.rows));
     api.settings().then(d => setSettings(d.settings));
     api.rapStatus().then(setRap).catch(() => {});
-  }, []);
-
-  useEffect(() => {
     api.submissionStats().then(setStats).catch(() => {});
   }, []);
 
@@ -220,14 +206,32 @@ export default function Submissions() {
   }, [searchParams, page]);
   useEffect(() => { load(); }, [load]);
 
+  const facets = stats?.facets || { statuses: [], categories: [], departments: [] };
+
+  // Status segments: the RAP trio always shows; extra board statuses (e.g.
+  // "closed") appear as segments only once they exist in the data.
+  const seg = useMemo(() => {
+    const known = ['open', 'in_progress', 'resolved'];
+    const extra = (facets.statuses || []).filter(s => !known.includes(s));
+    return [
+      { id: 'active', label: 'Active' },
+      { id: 'open', label: 'New' },
+      { id: 'in_progress', label: 'In progress' },
+      { id: 'resolved', label: 'Resolved' },
+      ...extra.map(s => ({ id: s, label: pretty(s) })),
+      { id: 'all', label: 'All' },
+    ];
+  }, [facets.statuses]);
+
   const deptColors = useMemo(() => {
     const map = {};
-    departments.forEach((d, idx) => {
-      map[d.name] = DEPT_KNOWN[d.name.trim().toLowerCase()] || DEPT_CYCLE[idx % DEPT_CYCLE.length];
+    (facets.departments || []).forEach((d, idx) => {
+      map[d] = DEPT_KNOWN[pretty(d).trim().toLowerCase()] || DEPT_CYCLE[idx % DEPT_CYCLE.length];
     });
     return map;
-  }, [departments]);
+  }, [facets.departments]);
 
+  const boardBase = rap?.sync?.boardBase;
   const pages = Math.max(1, Math.ceil(total / 25));
 
   async function exportCsv() {
@@ -247,11 +251,11 @@ export default function Submissions() {
       <div className="admin-head">
         <div>
           <div className="kicker" style={{ color: 'var(--orange)' }}>Inbox</div>
-          <h1 className="display">Submissions</h1>
+          <h1 className="display">Tickets</h1>
           <div className="sub">
-            {total} matching · safety concerns float to the top · updates happen on the RAP board
-            {rap?.mirror?.enabled && rap?.mirror?.keyConfigured && !rap?.mirror?.halted ? ' and mirror back here automatically' : ''}
-            {rap?.mirror?.halted ? ' — mirror paused, see Settings' : ''}
+            {total} matching · severity-5 concerns float to the top · the RAP board is the source of truth
+            {rap?.sync?.enabled && rap?.sync?.keyConfigured && !rap?.sync?.halted ? ' — changes there sync here within a minute' : ''}
+            {rap?.sync?.halted ? ' — sync paused, see Settings' : ''}
           </div>
         </div>
         {settings?.features?.csvExport && actor.can('export.csv') && (
@@ -263,7 +267,7 @@ export default function Submissions() {
 
       <div className="rp-stats">
         <div className="rp-tile">
-          <div className="l">Open</div>
+          <div className="l">New</div>
           <div className={`v${stats?.new_count ? ' hot' : ''}`}>{stats ? stats.new_count : '—'}</div>
         </div>
         <div className="rp-tile">
@@ -286,9 +290,9 @@ export default function Submissions() {
 
       <div className="rp-filterbar">
         <nav className="rp-seg" aria-label="Status filter">
-          {SEG.map(s => (
+          {seg.map(s => (
             <button key={s.id} className={filters.status === s.id ? 'on' : ''}
-              onClick={() => setFilter('status', s.id === 'open' ? '' : s.id)}>
+              onClick={() => setFilter('status', s.id === 'active' ? '' : s.id)}>
               {s.label}
             </button>
           ))}
@@ -296,22 +300,23 @@ export default function Submissions() {
         <select className="rp-fselect" data-active={!!filters.category} value={filters.category}
           onChange={e => setFilter('category', e.target.value)}>
           <option value="">All categories</option>
-          {categories.map(c => <option key={c.slug} value={c.slug}>{c.emoji} {c.name}</option>)}
+          {(facets.categories || []).map(c => <option key={c} value={c}>{pretty(c)}</option>)}
         </select>
-        <select className="rp-fselect" data-active={!!filters.location} value={filters.location}
-          onChange={e => setFilter('location', e.target.value)}>
-          <option value="">All locations</option>
-          {locations.map(l => <option key={l.slug} value={l.slug}>{l.name}</option>)}
+        <select className="rp-fselect" data-active={!!filters.department} value={filters.department}
+          onChange={e => setFilter('department', e.target.value)}>
+          <option value="">All departments</option>
+          {(facets.departments || []).map(d => <option key={d} value={d}>{pretty(d)}</option>)}
         </select>
-        <select className="rp-fselect" data-active={!!filters.type} value={filters.type}
-          onChange={e => setFilter('type', e.target.value)}>
-          <option value="">All types</option>
-          {['issue', 'request', 'feedback', 'compliment'].map(t => <option key={t} value={t}>{t}</option>)}
+        <select className="rp-fselect" data-active={!!filters.severity} value={filters.severity}
+          onChange={e => setFilter('severity', e.target.value)}>
+          <option value="">Any severity</option>
+          {[5, 4, 3, 2, 1].map(n => <option key={n} value={n}>severity {n}</option>)}
         </select>
-        <select className="rp-fselect" data-active={!!filters.urgency} value={filters.urgency}
-          onChange={e => setFilter('urgency', e.target.value)}>
-          <option value="">Any urgency</option>
-          {['safety', 'high', 'normal', 'low'].map(u => <option key={u} value={u}>{u}</option>)}
+        <select className="rp-fselect" data-active={!!filters.origin} value={filters.origin}
+          onChange={e => setFilter('origin', e.target.value)}>
+          <option value="">Any source</option>
+          <option value="woodsvoice">Submitted here</option>
+          <option value="other">Other sources</option>
         </select>
         <select className="rp-fselect" data-active={!!filters.sort} value={filters.sort}
           onChange={e => setFilter('sort', e.target.value)}>
@@ -331,7 +336,7 @@ export default function Submissions() {
         {rows && rows.map(r => {
           const expanded = openRowId === r.id;
           const age = waitAge(r);
-          const chip = STATUS_CHIP[r.status] || STATUS_CHIP.new;
+          const chip = statusChip(r.status);
           const deptColor = r.department ? deptColors[r.department] || 'var(--rp-dept-none)' : 'var(--rp-dept-none)';
           return (
             <li key={r.id}>
@@ -339,54 +344,55 @@ export default function Submissions() {
                 <button type="button" className="rp-rowhead" aria-expanded={expanded}
                   onClick={() => setOpenRowId(expanded ? null : r.id)}>
                   <div className="rp-rowline">
-                    <span className="rp-cabin">{r.location || r.location_text || 'No location'}</span>
+                    <span className="rp-cabin">{r.building || r.location_name || 'No location'}</span>
                     <span className="rp-dept">
                       <span className="rp-dot" style={{ background: deptColor }} />
-                      {r.department || 'Untriaged'}
+                      {r.department ? pretty(r.department) : 'Untriaged'}
                     </span>
-                    {r.category && <span className="rp-chip cat">{r.category_emoji} {r.category}</span>}
+                    {r.category && <span className="rp-chip cat">🏷 {pretty(r.category)}</span>}
                     <span className="rp-rowright">
-                      {r.type === 'compliment' && <span className="rp-mood" title="Compliment">💚</span>}
                       {r.photo_path && <span className="rp-mood" title="Photo attached">📷</span>}
-                      {r.rap_mood && MOOD[r.rap_mood] && (
-                        <span className="rp-mood" title={`Guest mood: ${MOOD[r.rap_mood][1]} (${r.rap_mood}/5)`}>{MOOD[r.rap_mood][0]}</span>
+                      {r.mood && MOOD[r.mood] && (
+                        <span className="rp-mood" title={`Guest mood: ${MOOD[r.mood][1]} (${r.mood}/5)`}>{MOOD[r.mood][0]}</span>
                       )}
-                      {(r.urgency === 'safety' || r.urgency === 'high') && (
-                        <span className={`rp-chip u-${r.urgency}`}>{r.urgency}</span>
+                      {r.severity >= 4 && (
+                        <span className={`rp-chip ${r.severity >= 5 ? 'u-safety' : 'u-high'}`}>sev {r.severity}</span>
                       )}
                       <span className={`rp-age ${age.cls}`} title="Time since received">{age.label}</span>
                       <span className={`rp-chip ${chip.cls}`}><span className="rp-dot" />{chip.label}</span>
                       <span className="rp-chev" aria-hidden="true">▸</span>
                     </span>
                   </div>
-                  {!expanded && <p className="rp-preview">{r.ai_summary || r.message}</p>}
+                  {!expanded && <p className="rp-preview">{r.summary || r.message}</p>}
                   <p className="rp-meta">
-                    {r.public_code} · received {fmtReceived(r.created_at)}
-                    {r.rap_ticket_id ? ` · RAP #${r.rap_ticket_id}` : ''}
+                    {r.public_code ? `${r.public_code} · ` : ''}RAP #{r.id} · received {fmtReceived(r.created_at)}
                     {r.guest_name ? ` · ${r.guest_name}` : ''}{r.group_name ? ` (${r.group_name})` : ''}
+                    {!r.from_woodsvoice ? ' · from another source' : ''}
                   </p>
                 </button>
                 <div className="rp-reveal" data-open={expanded || undefined}>
                   <div className="rp-reveal-clip">
                     <div className="rp-detail">
-                      <blockquote>“{r.message}”</blockquote>
-                      {r.ai_summary && <p className="rp-ai">✨ <strong>AI summary:</strong> {r.ai_summary}</p>}
-                      {(r.rap_mood || r.rap_severity) && (
+                      {r.message && <blockquote>“{r.message}”</blockquote>}
+                      {r.summary && <p className="rp-ai">✨ <strong>RAP summary:</strong> {r.summary}</p>}
+                      {(r.mood || r.severity) && (
                         <p className="rp-subline">
-                          {r.rap_mood && MOOD[r.rap_mood] && <>{MOOD[r.rap_mood][0]} Guest mood {MOOD[r.rap_mood][1]} ({r.rap_mood}/5)</>}
-                          {r.rap_mood && r.rap_severity ? ' · ' : ''}
-                          {r.rap_severity && <>Severity {r.rap_severity}/5</>}
+                          {r.mood && MOOD[r.mood] && <>{MOOD[r.mood][0]} Guest mood {MOOD[r.mood][1]} ({r.mood}/5)</>}
+                          {r.mood && r.severity ? ' · ' : ''}
+                          {r.severity && <>Severity {r.severity}/5</>}
                         </p>
                       )}
                       <p className="rp-subline">
-                        {r.guest_name || 'Anonymous'}{r.group_name ? ` · ${r.group_name}` : ''} · via {r.source.toUpperCase()}
+                        {r.from_woodsvoice
+                          ? <>{r.guest_name || 'Anonymous'}{r.group_name ? ` · ${r.group_name}` : ''} · via {String(r.source || 'qr').toUpperCase()}</>
+                          : <>Arrived on the RAP board from another source</>}
                         {r.rating ? ` · rated ${'★'.repeat(r.rating)}` : ''}
                       </p>
                       <button className="rp-btn rp-openfull" onClick={() => setOpenId(r.id)}>
-                        Full ticket · notes & history →
+                        Full ticket · history →
                       </button>
-                      {r.rap_ticket_id && rap?.mirror?.boardBase && (
-                        <a className="rp-btn" style={{ marginLeft: 8 }} href={`${rap.mirror.boardBase}/tickets/${r.rap_ticket_id}`}
+                      {boardBase && (
+                        <a className="rp-btn" style={{ marginLeft: 8 }} href={`${boardBase}/tickets/${r.id}`}
                           target="_blank" rel="noreferrer">
                           Open on the RAP board ↗
                         </a>
@@ -408,9 +414,9 @@ export default function Submissions() {
         </div>
       )}
 
-      <p className="rp-foot">Reports arrive via the QR signs posted at each location</p>
+      <p className="rp-foot">Tickets live on the RAP board — WoodsVoice adds the guest-facing capture, tracking and email layer</p>
 
-      {openId && <Drawer id={openId} onClose={() => setOpenId(null)} boardBase={rap?.mirror?.boardBase} />}
+      {openId && <Drawer id={openId} onClose={() => setOpenId(null)} boardBase={boardBase} />}
     </div>
   );
 }

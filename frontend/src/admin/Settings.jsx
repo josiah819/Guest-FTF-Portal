@@ -2,12 +2,11 @@ import React, { useEffect, useState } from 'react';
 import { api } from '../api';
 import { useActor } from './AdminApp';
 import ContentTab from './ContentTab';
-import DeptRoutingEditor from './DeptRoutingEditor';
 
 const FIELD_DEFS = [
   { key: 'location', label: 'Location', hint: 'Pre-filled automatically when guests arrive via a location QR code; the picker only shows without one.' },
-  { key: 'category', label: 'Category picker', hint: 'The tile grid. Leave off — the AI sorts every note into a category and department automatically.' },
-  { key: 'urgency', label: 'Urgency', hint: 'Lets guests flag “today please” or safety themselves. Off = the AI grades urgency from the message.' },
+  { key: 'category', label: 'Category picker', hint: 'The tile grid. Leave off — the RAP board’s triage sorts every note automatically; a guest’s pick just travels along as a hint.' },
+  { key: 'urgency', label: 'Urgency', hint: 'Lets guests flag “today please” or safety themselves. Their pick is passed to the RAP board’s triage.' },
   { key: 'photo', label: 'Photo upload', hint: 'A picture of the leaky tap beats three paragraphs about it.' },
   { key: 'name', label: 'Guest name', hint: 'Keep optional to allow anonymous feedback.' },
   { key: 'group', label: 'School / group', hint: 'Handy during multi-school weeks.' },
@@ -16,26 +15,24 @@ const FIELD_DEFS = [
 ];
 
 const FEATURE_DEFS = [
-  { key: 'aiCategorization', label: '✨ AI triage & routing', ai: true,
-    desc: 'The AI reads each submission, works out what kind of note it is, picks the category, grades urgency, writes a one-line staff summary and routes it to the right department. Falls back to keyword matching if no AI provider is reachable.' },
+  { key: 'rapForward', label: 'RAP delivery (central intake)', extra: 'rap',
+    desc: 'Deliver every captured note to the central Report-A-Problem board, which owns the ticket from there — triage, routing, status, notes. Needs RAP_INGEST_KEY on the server (.env). Switching this off only pauses delivery: notes keep queueing and go out when it’s back on.' },
+  { key: 'rapMirror', label: 'RAP board sync (the inbox’s data source)', extra: 'rapSync',
+    desc: 'Pull the RAP board back into a local cache once a minute — the inbox, dashboard, guest tracking page and status emails all read from it. Off = the inbox goes stale; leave this on.' },
   { key: 'aiInsights', label: '✨ AI insights on the dashboard', ai: true,
-    desc: 'One click turns the last 30 days of feedback into a short list of trends and suggested actions.' },
-  { key: 'submissionTypes', label: 'Submission type picker', desc: 'Guests label their note as an issue, request, feedback or shout-out. Off = the AI infers the type.' },
+    desc: 'One click turns the last 30 days of board activity into a short list of trends and suggested actions.' },
+  { key: 'submissionTypes', label: 'Submission type picker', desc: 'Guests label their note as an issue, request, feedback or shout-out; the label travels to the RAP board’s triage.' },
   { key: 'photoUpload', label: 'Photo uploads', desc: 'Allow guests to attach a photo (8 MB max). Also controlled per-field on the Form tab.' },
-  { key: 'urgency', label: 'Urgency handling', desc: 'Safety-flagged items float to the top of the inbox and trigger the dashboard alert.' },
-  { key: 'tracking', label: 'Submission tracking', desc: 'Guests get a code like MW-7KQ4F2 and a status page, which cuts down “did you get my note?” follow-ups.' },
-  { key: 'csat', label: 'Guest satisfaction ratings', desc: 'Once a submission is resolved, the tracking page invites a 1–5 star rating. Feeds the dashboard CSAT metric.' },
+  { key: 'urgency', label: 'Guest urgency flag', desc: 'Shows the urgency selector on the form; the guest’s own grading is passed to the RAP board.' },
+  { key: 'tracking', label: 'Submission tracking', desc: 'Guests get a code like MW-7KQ4F2 and a status page fed by the board sync, which cuts down “did you get my note?” follow-ups.' },
+  { key: 'csat', label: 'Guest satisfaction ratings', desc: 'Once the board resolves a ticket, the tracking page invites a 1–5 star rating. Feeds the dashboard CSAT metric.' },
   { key: 'emailUpdates', label: 'Guest email updates', extra: 'emailUpdates',
-    desc: 'After sending a note, guests can leave an email address and get a branded email as it moves along — picked up, resolved. The ask, the wording and the email templates are all editable on the Content tab.' },
+    desc: 'After sending a note, guests can leave an email address and get a branded email as the board moves it along — picked up, resolved. The ask, the wording and the email templates are all editable on the Content tab.' },
   { key: 'kioskMode', label: 'Kiosk mode', desc: 'Big-button, auto-resetting version of the form at /?kiosk=1 — made for a lobby tablet.' },
   { key: 'hotspots', label: 'Hotspot detection', desc: 'Flags any location + category combo reported 2+ times in 7 days, so a recurring problem is impossible to miss.' },
-  { key: 'sla', label: 'Response-time targets (SLA)', desc: 'Track first-response and resolution times against your targets; overdue items get called out.', extra: 'sla' },
   { key: 'csvExport', label: 'CSV export', desc: 'Download everything for deeper analysis in Excel or Power BI.' },
   { key: 'qrGenerator', label: 'QR code generator', desc: 'Print-ready QR cards per location on the Locations & QR page.' },
   { key: 'visitTracking', label: 'Visit tracking', desc: 'Counts guest-form opens by location and source (QR / kiosk / web) so the dashboard shows whether the QR cards are actually being scanned. No cookies, nothing personal stored.' },
-  { key: 'rapForward', label: 'RAP hand-off (central intake)', desc: 'Queue every new note and deliver its raw text to the central Report-A-Problem system, which runs its own triage and ticketing. Needs RAP_INGEST_KEY on the server (.env); delivery retries automatically until it lands.', extra: 'rap' },
-  { key: 'rapMirror', label: 'RAP mirror (status & triage sync)', desc: 'Pull each forwarded ticket’s status, routing, severity, guest mood and history back from the RAP board, so this inbox always shows exactly what their team sees. While this and the RAP hand-off are both on (with a key configured and the mirror healthy), local AI triage stands down — RAP’s triage is the source of truth. If the mirror can’t reach the board, local triage takes over automatically.', extra: 'rapMirror' },
-  { key: 'emailForward', label: 'Email notifications', desc: 'Email the address below for every new submission. Needs SMTP configured on the server (see .env); without it, notifications are logged on the timeline instead.', extra: 'email' },
 ];
 
 function Tri({ value, onChange }) {
@@ -48,10 +45,9 @@ function Tri({ value, onChange }) {
   );
 }
 
-function CatalogEditor({ table, departments, canRouting, assignees, setToast }) {
+function CatalogEditor({ table, departments }) {
   const [rows, setRows] = useState(null);
-  const [draft, setDraft] = useState({ name: '', emoji: '📝', email: '', departmentId: '' });
-  const [openRouting, setOpenRouting] = useState(null);
+  const [draft, setDraft] = useState({ name: '', emoji: '📝', departmentId: '' });
   const load = () => api.catalog(table).then(d => setRows(d.rows));
   useEffect(() => { load(); /* eslint-disable-line react-hooks/exhaustive-deps */ }, [table]);
 
@@ -60,9 +56,9 @@ function CatalogEditor({ table, departments, canRouting, assignees, setToast }) 
     if (!draft.name.trim()) return;
     const body = table === 'categories'
       ? { name: draft.name, emoji: draft.emoji || '📝', departmentId: draft.departmentId || null }
-      : { name: draft.name, email: draft.email };
+      : { name: draft.name };
     await api.catalogCreate(table, body);
-    setDraft({ name: '', emoji: '📝', email: '', departmentId: '' });
+    setDraft({ name: '', emoji: '📝', departmentId: '' });
     load();
   }
   async function update(id, patch) {
@@ -76,8 +72,8 @@ function CatalogEditor({ table, departments, canRouting, assignees, setToast }) 
       <h3>{table === 'categories' ? 'Categories' : 'Departments'}</h3>
       <p className="hint">
         {table === 'categories'
-          ? 'What the AI sorts submissions into. Each category routes to a department.'
-          : 'The teams submissions get routed to. Hours, fallbacks and SLA overrides live here too.'}
+          ? 'The guest form’s optional category picker. A guest’s pick travels to the RAP board as a triage hint — the board’s own categories are what the inbox shows.'
+          : 'Used for department-scoped staff access: a teammate limited to “Housekeeping” sees the board tickets RAP routed to housekeeping. Routing itself happens on the RAP board.'}
       </p>
       <form onSubmit={add} style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
         {table === 'categories' && (
@@ -86,51 +82,33 @@ function CatalogEditor({ table, departments, canRouting, assignees, setToast }) 
         )}
         <input className="input" style={{ flex: 2, minWidth: 150 }} placeholder={`New ${table.slice(0, -1)} name`}
           value={draft.name} onChange={e => setDraft(d => ({ ...d, name: e.target.value }))} />
-        {table === 'categories' ? (
+        {table === 'categories' && (
           <select className="input" style={{ flex: 1, minWidth: 150 }} value={draft.departmentId}
             onChange={e => setDraft(d => ({ ...d, departmentId: e.target.value }))}>
-            <option value="">Route to…</option>
+            <option value="">Group under…</option>
             {departments.filter(d => d.active).map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
           </select>
-        ) : (
-          <input className="input" style={{ flex: 1, minWidth: 150 }} placeholder="Notification email (optional)"
-            value={draft.email} onChange={e => setDraft(d => ({ ...d, email: e.target.value }))} />
         )}
         <button className="btn btn-teal btn-small" type="submit">+ Add</button>
       </form>
       {rows.map(r => (
-        <React.Fragment key={r.id}>
-          <div className={`cat-row${r.active ? '' : ' inactive'}`}>
-            {table === 'categories' && (
-              <input className="input" style={{ width: 56, textAlign: 'center' }} defaultValue={r.emoji}
-                onBlur={e => e.target.value !== r.emoji && update(r.id, { emoji: e.target.value })} />
-            )}
-            <input className="input grow" defaultValue={r.name}
-              onBlur={e => e.target.value !== r.name && update(r.id, { name: e.target.value })} />
-            {table === 'categories' ? (
-              <select className="input" style={{ width: 190 }} value={r.department_id || ''}
-                onChange={e => update(r.id, { departmentId: e.target.value || null })}>
-                <option value="">No department</option>
-                {departments.filter(d => d.active).map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
-              </select>
-            ) : (
-              <input className="input" style={{ width: 190 }} placeholder="email" defaultValue={r.email}
-                onBlur={e => e.target.value !== r.email && update(r.id, { email: e.target.value })} />
-            )}
-            {table === 'departments' && canRouting && (
-              <button className="btn btn-ghost btn-small" style={{ flexShrink: 0 }}
-                onClick={() => setOpenRouting(openRouting === r.id ? null : r.id)}>
-                🕐 {r.hours ? 'Hours set' : '24/7'}{openRouting === r.id ? ' ▾' : ''}
-              </button>
-            )}
-            <button className={`switch${r.active ? ' on' : ''}`} title={r.active ? 'Active' : 'Hidden'}
-              onClick={() => update(r.id, { active: !r.active })} aria-label="Toggle active" />
-          </div>
-          {table === 'departments' && canRouting && openRouting === r.id && (
-            <DeptRoutingEditor dept={r} departments={rows} assignees={assignees}
-              onSaved={() => load()} setToast={setToast} />
+        <div className={`cat-row${r.active ? '' : ' inactive'}`} key={r.id}>
+          {table === 'categories' && (
+            <input className="input" style={{ width: 56, textAlign: 'center' }} defaultValue={r.emoji}
+              onBlur={e => e.target.value !== r.emoji && update(r.id, { emoji: e.target.value })} />
           )}
-        </React.Fragment>
+          <input className="input grow" defaultValue={r.name}
+            onBlur={e => e.target.value !== r.name && update(r.id, { name: e.target.value })} />
+          {table === 'categories' && (
+            <select className="input" style={{ width: 190 }} value={r.department_id || ''}
+              onChange={e => update(r.id, { departmentId: e.target.value || null })}>
+              <option value="">No department</option>
+              {departments.filter(d => d.active).map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
+            </select>
+          )}
+          <button className={`switch${r.active ? ' on' : ''}`} title={r.active ? 'Active' : 'Hidden'}
+            onClick={() => update(r.id, { active: !r.active })} aria-label="Toggle active" />
+        </div>
       ))}
     </div>
   );
@@ -180,45 +158,29 @@ const TAB_DEFS = [
   { id: 'Content', perm: 'content.manage' },
   { id: 'Categories', perm: 'catalogs.manage' },
   { id: 'Departments', perm: 'catalogs.manage' },
-  { id: 'General', perm: 'settings.manage' },
   { id: 'Account', perm: null },
 ];
 
 // Tabs whose edits go through the save bar (vs. instant catalog edits).
-const SAVE_TABS = ['Form fields', 'Features', 'AI', 'Content', 'General'];
+const SAVE_TABS = ['Form fields', 'Features', 'AI', 'Content'];
 
 const AI_PROVIDERS = [
   { id: 'anthropic', label: 'Anthropic API (Claude)',
-    desc: 'Best triage quality, ~a tenth of a cent per submission. Needs ANTHROPIC_API_KEY on the server.' },
+    desc: 'Best quality. Needs ANTHROPIC_API_KEY on the server.' },
   { id: 'openai', label: 'Local / self-hosted model',
     desc: 'Any OpenAI-compatible endpoint — Ollama on an LXC, LM Studio, vLLM. Nothing leaves your network.' },
-  { id: 'keywords', label: 'Keywords only (no AI)',
-    desc: 'Simple word matching. Also the automatic fallback whenever an AI call fails.' },
+  { id: 'keywords', label: 'None',
+    desc: 'Insights stay switched off — the dashboard button explains what’s missing.' },
 ];
 
 function AiTab({ s, patch, aiKey }) {
-  const [test, setTest] = useState(null);
-  const [testing, setTesting] = useState(false);
   const ai = s.ai || {};
-
-  async function runTest() {
-    setTesting(true);
-    setTest(null);
-    try {
-      setTest(await api.aiTest(ai));
-    } catch (err) {
-      setTest({ ok: false, error: err.message });
-    } finally {
-      setTesting(false);
-    }
-  }
-
   return (
     <div className="card">
-      <h3>Triage engine</h3>
+      <h3>Insights engine</h3>
       <p className="hint">
-        Who reads each guest note and decides its type, category, urgency and summary.
-        Whatever you pick, a failed AI call always falls back to keyword matching — the guest never notices.
+        Powers the dashboard’s “Generate insights” card. Ticket triage happens on the RAP board —
+        this engine only reads the synced data to spot trends.
       </p>
       {AI_PROVIDERS.map(p => (
         <div className="toggle-row" key={p.id}>
@@ -254,34 +216,13 @@ function AiTab({ s, patch, aiKey }) {
                     onChange={e => patch('ai', 'openaiModel', e.target.value)} /></div>
                 <div style={{ gridColumn: '1 / -1' }} className="hint">
                   Point it at Ollama’s port and the /v1 path is added automatically. If your endpoint needs a key,
-                  set OPENAI_API_KEY in the server environment. First call after idle can be slow while the model
-                  loads — the test button below warms it up.
+                  set OPENAI_API_KEY in the server environment.
                 </div>
               </div>
             )}
           </div>
         </div>
       ))}
-
-      <div style={{ marginTop: 16, display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
-        <button className="btn btn-teal btn-small" onClick={runTest} disabled={testing}>
-          {testing ? 'Testing… (cold models can take a minute)' : '⚡ Test connection'}
-        </button>
-        <span className="hint" style={{ margin: 0 }}>Runs the selected engine against a sample note — including unsaved changes above.</span>
-      </div>
-      {test && (
-        <div className={test.ok ? 'ai-line' : 'error-note'} style={{ marginTop: 12 }}>
-          {test.ok ? (
-            <span>
-              ✅ <strong>{test.engine}</strong> answered in {(test.latencyMs / 1000).toFixed(1)}s —
-              type <strong>{test.result.type}</strong>, category <strong>{test.result.category}</strong>,
-              urgency <strong>{test.result.urgency}</strong>{test.result.summary ? <> · “{test.result.summary}”</> : null}
-            </span>
-          ) : (
-            <span>❌ {test.error}</span>
-          )}
-        </div>
-      )}
     </div>
   );
 }
@@ -299,15 +240,13 @@ export default function Settings() {
   const [saving, setSaving] = useState(false);
   const [toast, setToast] = useState('');
 
-  const [assignees, setAssignees] = useState([]);
   const [rap, setRap] = useState(null);
-  const [mirrorTest, setMirrorTest] = useState(null);
-  const [mirrorTesting, setMirrorTesting] = useState(false);
+  const [syncTest, setSyncTest] = useState(null);
+  const [syncTesting, setSyncTesting] = useState(false);
 
   useEffect(() => {
     api.settings().then(d => { setS(d.settings); setAiKey(d.aiKeyPresent); setSmtpOk(!!d.smtpConfigured); });
     api.catalog('departments').then(d => setDepartments(d.rows));
-    api.assignees().then(d => setAssignees(d.rows)).catch(() => {});
     api.rapStatus().then(setRap).catch(() => {});
   }, []);
 
@@ -373,11 +312,6 @@ export default function Settings() {
           <h1 className="display">Settings</h1>
           <div className="sub">Decide what guests see, what’s required, and which features are switched on.</div>
         </div>
-        <div className="actions">
-          <span className="badge" style={{ background: aiKey ? '#E4F0CD' : '#F6E8D8', color: aiKey ? 'var(--green-dark)' : '#8A4A16' }}>
-            {aiKey ? '✨ Claude API key detected' : '✨ No API key — keyword fallback'}
-          </span>
-        </div>
       </div>
 
       <div className="tabs">
@@ -389,7 +323,7 @@ export default function Settings() {
       {tab === 'Form fields' && (
         <div className="card">
           <h3>Guest form fields</h3>
-          <p className="hint">“Off” hides the field entirely. The message box is always required — it’s the whole point. The default form is just message + name + photo; the AI infers everything else.</p>
+          <p className="hint">“Off” hides the field entirely. The message box is always required — it’s the whole point. The default form is just message + name + photo; the RAP board’s triage infers everything else.</p>
           <div className="toggle-row">
             <div>
               <div className="t">Message</div>
@@ -412,63 +346,12 @@ export default function Settings() {
       {tab === 'Features' && (
         <div className="card">
           <h3>Optional features</h3>
-          <p className="hint">Start small, switch things on as the team gets comfortable. Changes apply immediately.</p>
+          <p className="hint">The two RAP switches are the heart of the site — everything else layers on top. Changes apply immediately.</p>
           {FEATURE_DEFS.map(f => (
             <div className="toggle-row" key={f.key}>
               <div style={{ flex: 1 }}>
-                <div className="t">{f.label} {f.ai && !aiKey && <span className="badge u-high" style={{ marginLeft: 6 }}>needs an AI provider for full power</span>}</div>
+                <div className="t">{f.label} {f.ai && !aiKey && <span className="badge u-high" style={{ marginLeft: 6 }}>needs an AI provider</span>}</div>
                 <div className="d">{f.desc}</div>
-                {f.extra === 'sla' && s.features.sla && (
-                  <div style={{ marginTop: 10 }}>
-                    <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-                      <label className="muted" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                        First response within
-                        <input className="input" type="number" min="1" style={{ width: 76, padding: '6px 8px' }}
-                          value={s.sla.firstResponseHours}
-                          onChange={e => patch('sla', 'firstResponseHours', parseInt(e.target.value, 10) || 24)} /> h
-                      </label>
-                      <label className="muted" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                        Resolve within
-                        <input className="input" type="number" min="1" style={{ width: 76, padding: '6px 8px' }}
-                          value={s.sla.resolutionHours}
-                          onChange={e => patch('sla', 'resolutionHours', parseInt(e.target.value, 10) || 72)} /> h
-                      </label>
-                      <label className="muted" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                        Warn departments at
-                        <input className="input" type="number" min="10" max="100" style={{ width: 70, padding: '6px 8px' }}
-                          value={s.sla.warnPct ?? 80}
-                          onChange={e => patch('sla', 'warnPct', Math.min(Math.max(parseInt(e.target.value, 10) || 80, 10), 100))} /> % of the window
-                      </label>
-                    </div>
-                    <div className="muted" style={{ fontSize: 12.5, margin: '10px 0 4px' }}>
-                      Per-urgency overrides (blank = the numbers above; per-department overrides on the Departments tab beat both):
-                    </div>
-                    {['safety', 'high', 'normal', 'low'].map(level => {
-                      const cur = (s.sla.urgency || {})[level] || {};
-                      const setUrg = (key) => (e) => {
-                        const v = e.target.value ? parseInt(e.target.value, 10) : null;
-                        const next = { ...cur, [key]: v };
-                        const empty = !next.firstResponseHours && !next.resolutionHours;
-                        patchPath('sla', ['urgency', level], empty ? null : next);
-                      };
-                      return (
-                        <div key={level} style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 4 }}>
-                          <span className={`badge u-${level}`} style={{ width: 64, textAlign: 'center' }}>{level}</span>
-                          <label className="muted" style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 13 }}>
-                            respond
-                            <input className="input" type="number" min="1" placeholder="—" style={{ width: 66, padding: '5px 7px' }}
-                              value={cur.firstResponseHours || ''} onChange={setUrg('firstResponseHours')} /> h
-                          </label>
-                          <label className="muted" style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 13 }}>
-                            resolve
-                            <input className="input" type="number" min="1" placeholder="—" style={{ width: 66, padding: '5px 7px' }}
-                              value={cur.resolutionHours || ''} onChange={setUrg('resolutionHours')} /> h
-                          </label>
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
                 {f.extra === 'rap' && s.features.rapForward !== false && (
                   <div className="hint" style={{ marginTop: 10 }}>
                     {!rap ? 'Checking delivery status…' : <>
@@ -483,40 +366,39 @@ export default function Settings() {
                     </>}
                   </div>
                 )}
-                {f.extra === 'rapMirror' && s.features.rapMirror !== false && (
+                {f.extra === 'rapSync' && s.features.rapMirror !== false && (
                   <div className="hint" style={{ marginTop: 10 }}>
-                    {!rap?.mirror ? 'Checking mirror status…' : <>
-                      {rap.mirror.keyConfigured
-                        ? <>Key configured ✓ · reads {rap.mirror.endpoint}</>
-                        : <>No key on the server — set RAP_EXPORT_KEY (or reuse RAP_INGEST_KEY) in .env to start mirroring.</>}
+                    {!rap?.sync ? 'Checking sync status…' : <>
+                      {rap.sync.keyConfigured
+                        ? <>Key configured ✓ · reads {rap.sync.endpoint}</>
+                        : <>No key on the server — set RAP_EXPORT_KEY (or reuse RAP_INGEST_KEY) in .env to start syncing.</>}
                       <br />
-                      {rap.mirror.linked} tickets linked
-                      {rap.mirror.lastSyncAt && <> · last sync {new Date(rap.mirror.lastSyncAt).toLocaleString()}
-                        {rap.mirror.lastMatchedCount != null && <> ({rap.mirror.lastMatchedCount} of {rap.mirror.lastTicketCount} board tickets are ours)</>}</>}
-                      {rap.mirror.halted && <><br /><b style={{ color: 'var(--orange)' }}>Mirror halted ({rap.mirror.halted}) — the key likely isn’t authorized to read; ask the RAP operator, then hit Test mirror.</b></>}
-                      {!rap.mirror.halted && rap.mirror.lastError && <><br />Last error: {rap.mirror.lastError}</>}
+                      {rap.sync.cached} board tickets cached · {rap.sync.linked} submitted from here
+                      {rap.sync.lastSyncAt && <> · last sync {new Date(rap.sync.lastSyncAt).toLocaleString()}</>}
+                      {rap.sync.halted && <><br /><b style={{ color: 'var(--orange)' }}>Sync halted ({rap.sync.halted}) — the key likely isn’t authorized to read; ask the RAP operator, then hit Test sync.</b></>}
+                      {!rap.sync.halted && rap.sync.lastError && <><br />Last error: {rap.sync.lastError}</>}
                       {actor.can('settings.manage') && (
                         <div style={{ marginTop: 8 }}>
-                          <button className="btn btn-ghost btn-small" disabled={mirrorTesting}
+                          <button className="btn btn-ghost btn-small" disabled={syncTesting}
                             onClick={async () => {
-                              setMirrorTesting(true);
-                              setMirrorTest(null);
-                              try { setMirrorTest(await api.rapMirrorTest()); }
-                              catch (err) { setMirrorTest({ ok: false, error: err.message }); }
+                              setSyncTesting(true);
+                              setSyncTest(null);
+                              try { setSyncTest(await api.rapSyncTest()); }
+                              catch (err) { setSyncTest({ ok: false, error: err.message }); }
                               finally {
-                                setMirrorTesting(false);
+                                setSyncTesting(false);
                                 // The probe can clear a halt and kick a sync server-side —
                                 // refresh the readout so the banner tells the truth.
                                 api.rapStatus().then(setRap).catch(() => {});
                               }
                             }}>
-                            {mirrorTesting ? 'Testing…' : '⟳ Test mirror'}
+                            {syncTesting ? 'Testing…' : '⟳ Test sync'}
                           </button>
-                          {mirrorTest && (
+                          {syncTest && (
                             <span style={{ marginLeft: 8 }}>
-                              {mirrorTest.ok
-                                ? <>✓ {mirrorTest.ticketCount} tickets on the board · {mirrorTest.parsedCount} readable · {mirrorTest.linkedCount} linked to ours{mirrorTest.statuses?.length ? <> · statuses: {mirrorTest.statuses.join(', ')}</> : null}</>
-                                : <b style={{ color: 'var(--orange)' }}>✗ {mirrorTest.error}{mirrorTest.shape ? ` (response keys: ${[].concat(mirrorTest.shape).join(', ')})` : ''}</b>}
+                              {syncTest.ok
+                                ? <>✓ {syncTest.ticketCount} tickets on the board · {syncTest.parsedCount} readable · {syncTest.withTextCount} carry the guest text · {syncTest.linkedCount} linked to ours{syncTest.statuses?.length ? <> · statuses: {syncTest.statuses.join(', ')}</> : null}</>
+                                : <b style={{ color: 'var(--orange)' }}>✗ {syncTest.error}{syncTest.shape ? ` (response keys: ${[].concat(syncTest.shape).join(', ')})` : ''}</b>}
                             </span>
                           )}
                         </div>
@@ -530,11 +412,6 @@ export default function Settings() {
                       ? <>SMTP configured ✓ — guests see the email option on the thank-you screen and their tracking page.</>
                       : <b style={{ color: 'var(--orange)' }}>SMTP isn’t configured on the server (SMTP_HOST… in .env) — the option stays hidden from guests until it is.</b>}
                   </div>
-                )}
-                {f.extra === 'email' && s.features.emailForward && (
-                  <input className="input" style={{ marginTop: 10 }} placeholder="guestcare@muskokawoods.com"
-                    value={s.integrations.notifyEmail}
-                    onChange={e => patch('integrations', 'notifyEmail', e.target.value)} />
                 )}
               </div>
               <button className={`switch${s.features[f.key] ? ' on' : ''}`}
@@ -550,42 +427,8 @@ export default function Settings() {
         <ContentTab s={s} patch={patch} patchPath={patchPath} applySettings={applySettings} setToast={setToast} />
       )}
 
-      {tab === 'Categories' && <CatalogEditor table="categories" departments={departments} setToast={setToast} />}
-      {tab === 'Departments' && (
-        <CatalogEditor table="departments" departments={departments} setToast={setToast}
-          canRouting={actor.can('routing.manage')} assignees={assignees} />
-      )}
-
-      {tab === 'General' && (
-        <div className="card">
-          <h3>Operations</h3>
-          <div className="form-grid">
-            <div><label>Timezone (department hours & SLA clocks)</label>
-              <input className="input" value={s.general.timezone || 'America/Toronto'}
-                onChange={e => patch('general', 'timezone', e.target.value)} placeholder="America/Toronto" /></div>
-          </div>
-
-          <h3 style={{ marginTop: 26 }}>Accountability</h3>
-          <p className="hint">
-            Shown on the dashboard’s SLA card — “who monitors this?” should never
-            depend on who you ask.
-          </p>
-          <div className="form-grid">
-            <div><label>System owner (dept or person)</label>
-              <input className="input" value={s.accountability?.systemOwner || ''}
-                onChange={e => patch('accountability', 'systemOwner', e.target.value)} /></div>
-            <div><label>App maintainer</label>
-              <input className="input" value={s.accountability?.maintainer || ''}
-                onChange={e => patch('accountability', 'maintainer', e.target.value)} /></div>
-            <div><label>SLA monitor</label>
-              <input className="input" value={s.accountability?.slaMonitor || ''}
-                onChange={e => patch('accountability', 'slaMonitor', e.target.value)} /></div>
-            <div><label>Review cadence</label>
-              <input className="input" value={s.accountability?.reviewCadence || ''}
-                onChange={e => patch('accountability', 'reviewCadence', e.target.value)} /></div>
-          </div>
-        </div>
-      )}
+      {tab === 'Categories' && <CatalogEditor table="categories" departments={departments} />}
+      {tab === 'Departments' && <CatalogEditor table="departments" departments={departments} />}
 
       {tab === 'Account' && <Account />}
 

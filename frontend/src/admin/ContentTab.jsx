@@ -257,6 +257,7 @@ export default function ContentTab({ s, patch, patchPath, applySettings, setToas
           <TextRow label="Empty-state note" value={track.emptyNote} onChange={setTrack('emptyNote')} />
           <TextRow label="Back-to-list link" value={track.backToListLabel} onChange={setTrack('backToListLabel')} />
           <TextRow label="'Being sorted' label" value={track.beingSorted} onChange={setTrack('beingSorted')} />
+          <TextRow label="Team-notes heading" value={track.notesTitle} onChange={setTrack('notesTitle')} />
           <TextRow label="Rating prompt" value={track.ratingPrompt} onChange={setTrack('ratingPrompt')} />
           <TextRow label="Rating thanks" value={track.ratingThanks} onChange={setTrack('ratingThanks')} />
           <TextRow label="Rating comment placeholder" value={track.ratingCommentPlaceholder} onChange={setTrack('ratingCommentPlaceholder')} />

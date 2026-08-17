@@ -1,10 +1,15 @@
 // RAP hand-off — delivers every guest note to the central Report-A-Problem
 // intake API (contract v2: POST { text, submitted_at } + bearer key).
 //
-// Design, per the RAP intake brief:
-//  - Submissions are queued in Postgres at capture time (rap_queue) and drained
-//    by a background sender, so reports survive crashes, restarts and RAP
-//    downtime, and retries always carry the original capture timestamp.
+// RAP's board is the system of record for tickets. Capture writes ONE row here
+// (rap_queue): the exact payload to deliver, plus the guest-facing extras RAP
+// doesn't own for us (our MW code, email-updates opt-in, CSAT rating, local
+// photo path). A background sender drains the queue, so reports survive
+// crashes, restarts and RAP downtime, and retries always carry the original
+// capture timestamp. The ticket_id RAP returns at delivery links the row to
+// the mirrored board copy in rap_tickets (rapSync.js).
+//
+// Failure discipline, per the RAP intake brief:
 //  - Retry only when nothing was stored server-side: 429 (per-IP window —
 //    pause the whole sender ≥60s), 503 and network errors (the insert is
 //    transactional). 400 = our payload is wrong: park it, never retry
@@ -32,55 +37,46 @@ let haltedReason = '';                  // non-empty = stop until restart (401 /
 let pausedUntil = 0;                    // 429 pause
 let warnedNoKey = false;
 
-async function timelineEvent(submissionId, detail) {
-  await pool.query(
-    `INSERT INTO submission_events (submission_id, kind, detail) VALUES ($1,'forward',$2)`,
-    [submissionId, detail]);
-}
-
-// Called inline on submission capture. Must never break the guest's submit —
-// any failure is logged and the note still exists locally.
-async function enqueueRap(settings, { submissionId, text, submittedAt, code, location, channel, ...guest }) {
-  try {
-    if (settings.features.rapForward === false) return;
-    const body = String(text || '').trim().slice(0, 4000);  // RAP 400s past 4000 chars
-    if (!body) return;
-    const payload = {
-      text: body,                                            // the guest's words, verbatim
-      submitted_at: new Date(submittedAt).toISOString(),     // capture time, not delivery time
-      // Extra fields: RAP preserves unknown keys in its immutable raw record.
-      // Useful for cross-referencing, but RAP never *relies* on them.
-      source: 'woodsvoice',
-      code,                                                  // our MW-XXXXXX tracking code
-      location: location || null,
-      channel,                                               // qr | kiosk | web
-    };
-    // The rest of what the guest gave us. The guest_* type/urgency/category are
-    // the guest's own declarations, sent only when they actually chose one —
-    // our internal defaults would read to RAP's triage as a real answer. Blank
-    // fields are dropped rather than sent as "", for the same reason.
-    for (const [key, value] of Object.entries({
-      guest_name: guest.guestName,
-      guest_email: guest.guestEmail,
-      guest_phone: guest.guestPhone,
-      group_name: guest.groupName,
-      location_slug: guest.locationSlug,
-      guest_type: guest.guestType,
-      guest_urgency: guest.guestUrgency,
-      guest_category: guest.guestCategory,
-      photo_url: guest.photoUrl,
-      tracking_url: guest.trackingUrl,
-    })) {
-      const v = String(value ?? '').trim();
-      if (v) payload[key] = v;
-    }
-    await pool.query(
-      `INSERT INTO rap_queue (submission_id, payload) VALUES ($1, $2)
-       ON CONFLICT (submission_id) DO NOTHING`,
-      [submissionId, JSON.stringify(payload)]);
-  } catch (err) {
-    console.error('[rap] enqueue failed:', err.message);
+// Called inline on submission capture — this insert IS the capture; if it
+// fails the guest's submit fails (there is no other store).
+// Returns the queue row id.
+async function enqueueRap({ text, submittedAt, code, location, channel, photoPath, ...guest }) {
+  const body = String(text || '').trim().slice(0, 4000);  // RAP 400s past 4000 chars
+  const payload = {
+    text: body,                                            // the guest's words, verbatim
+    submitted_at: new Date(submittedAt).toISOString(),     // capture time, not delivery time
+    // Extra fields: RAP preserves unknown keys in its immutable raw record.
+    // Useful for cross-referencing, but RAP never *relies* on them.
+    source: 'woodsvoice',
+    code,                                                  // our MW-XXXXXX tracking code
+    location: location || null,
+    channel,                                               // qr | kiosk | web
+  };
+  // The rest of what the guest gave us. The guest_* type/urgency/category are
+  // the guest's own declarations, sent only when they actually chose one —
+  // internal defaults would read to RAP's triage as a real answer. Blank
+  // fields are dropped rather than sent as "", for the same reason.
+  for (const [key, value] of Object.entries({
+    guest_name: guest.guestName,
+    guest_email: guest.guestEmail,
+    guest_phone: guest.guestPhone,
+    group_name: guest.groupName,
+    location_slug: guest.locationSlug,
+    guest_type: guest.guestType,
+    guest_urgency: guest.guestUrgency,
+    guest_category: guest.guestCategory,
+    photo_url: guest.photoUrl,
+    tracking_url: guest.trackingUrl,
+  })) {
+    const v = String(value ?? '').trim();
+    if (v) payload[key] = v;
   }
+  const { rows } = await pool.query(
+    `INSERT INTO rap_queue (public_code, payload, guest_name, location_name, photo_path, source)
+     VALUES ($1,$2,$3,$4,$5,$6) RETURNING id`,
+    [code, JSON.stringify(payload), String(guest.guestName || ''), location || '',
+     photoPath || '', ['qr', 'web', 'kiosk'].includes(channel) ? channel : 'qr']);
+  return rows[0].id;
 }
 
 const errOf = (body, bodyText) =>
@@ -98,9 +94,6 @@ async function deferRetry(row, status, msg) {
             last_status = $4, last_error = $5, updated_at = now()
       WHERE id = $1`,
     [row.id, attempts, backoffMs, status, msg]);
-  if (attempts === 1) {
-    await timelineEvent(row.submission_id, `RAP hand-off delayed (${msg || 'no response'}) — retrying with backoff`);
-  }
   console.warn(`[rap] send failed for queue #${row.id} (${status || 'network'}: ${msg}) — retry in ~${Math.round(backoffMs / 1000)}s`);
 }
 
@@ -129,8 +122,10 @@ async function sendOne(row) {
               last_status = $2, last_error = '', rap_submission_id = $3, rap_ticket_id = $4, updated_at = now()
         WHERE id = $1`,
       [row.id, resp.status, body.submission_id ?? null, body.ticket_id ?? null]);
-    await timelineEvent(row.submission_id,
-      `Forwarded to RAP${body.ticket_id != null ? ` — ticket #${body.ticket_id}` : ''}`);
+    // Nudge the board sync so the freshly created ticket shows up in the inbox
+    // on the next tick instead of a minute later. Lazy require: rapSync is
+    // started by index.js after this module loads.
+    try { require('./rapSync').kickSync(); } catch { /* sync not started yet */ }
     return;
   }
 
@@ -149,7 +144,6 @@ async function sendOne(row) {
               last_status = 400, last_error = $2, updated_at = now()
         WHERE id = $1`,
       [row.id, msg]);
-    await timelineEvent(row.submission_id, `RAP rejected the payload (400 ${msg}) — kept locally only`);
     console.error(`[rap] payload rejected for queue #${row.id}: ${msg} — not retrying (fix the payload builder)`);
     return;
   }
@@ -162,8 +156,6 @@ async function sendOne(row) {
       `UPDATE rap_queue SET attempts = attempts + 1, last_status = $2, last_error = $3, updated_at = now()
         WHERE id = $1`,
       [row.id, resp.status, errOf(body, bodyText)]);
-    await timelineEvent(row.submission_id,
-      `RAP hand-off halted (${haltedReason}) — notes stay queued; check RAP_INGEST_KEY and restart the backend`);
     console.error(`[rap] HALTED (${haltedReason}) — check RAP_INGEST_KEY / RAP_INGEST_URL and restart the backend; queued notes are safe`);
     return;
   }
@@ -177,6 +169,8 @@ async function drain() {
   running = true;
   try {
     const settings = await getSettings();
+    // The toggle pauses DELIVERY only — capture always queues, so switching it
+    // back on delivers everything that piled up.
     if (settings.features.rapForward === false) return;
     if (!INGEST_KEY) {
       if (!warnedNoKey) {
@@ -186,7 +180,7 @@ async function drain() {
       return;
     }
     const { rows } = await pool.query(
-      `SELECT id, submission_id, payload, attempts FROM rap_queue
+      `SELECT id, payload, attempts FROM rap_queue
         WHERE status = 'pending' AND next_attempt_at <= now()
         ORDER BY id LIMIT $1`, [BATCH]);
     for (const row of rows) {

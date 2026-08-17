@@ -16,6 +16,9 @@ const STATUS_STYLE = {
 const fmtWhen = (iso) =>
   new Date(iso).toLocaleString('en-CA', { dateStyle: 'medium', timeStyle: 'short' });
 
+// Categories come from the RAP board as slugs ("food_services") — prettify.
+const pretty = (s) => String(s || '').replace(/_/g, ' ').replace(/^\w/, c => c.toUpperCase());
+
 export default function Track() {
   const { code: codeParam } = useParams();
   const [config, setConfig] = useState(null);
@@ -130,7 +133,7 @@ export default function Track() {
               <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
                 <span className="track-status" style={{ background: st.bg, color: st.fg }}>{stLabel}</span>
                 <span className="muted">
-                  {data.emoji} {data.category || ct.beingSorted || 'Being sorted'} {data.location ? `· ${data.location}` : ''}
+                  {data.category ? pretty(data.category) : (ct.beingSorted || 'Being sorted')} {data.location ? `· ${data.location}` : ''}
                 </span>
               </div>
 
@@ -144,6 +147,18 @@ export default function Track() {
                   </li>
                 ))}
               </ul>
+
+              {data.notes?.length > 0 && (
+                <div className="guest-notes">
+                  <div className="field-label" style={{ marginTop: 18 }}>{ct.notesTitle || 'Notes from our team'}</div>
+                  {data.notes.map((n, i) => (
+                    <div key={i} className="guest-note">
+                      <p>{n.text}</p>
+                      {n.at && <div className="when">{fmtWhen(n.at)}</div>}
+                    </div>
+                  ))}
+                </div>
+              )}
 
               {data.emailUpdates && (
                 updatesOn ? (
@@ -222,7 +237,7 @@ export default function Track() {
                     </div>
                     {s.message && <div className="track-item__msg">{s.message}</div>}
                     <div className="track-item__meta">
-                      {s.live && s.emoji} {s.live ? (s.category || ct.beingSorted || 'Being sorted') : ''}
+                      {s.live ? (s.category ? pretty(s.category) : (ct.beingSorted || 'Being sorted')) : ''}
                       {s.location ? `${s.live ? ' · ' : ''}${s.location}` : ''}
                     </div>
                   </Link>

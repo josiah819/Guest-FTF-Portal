@@ -35,25 +35,24 @@ export const DEFAULT_POLICY = {
 ## How we use your note
 
 - **Getting it to the right people** — notes are routed to the team responsible for the category and location.
-- **Sorting.** The text of your message may be processed by an AI service to suggest a category, an urgency, and a one-line summary for staff. Depending on how the portal is configured this is Anthropic’s Claude service or a model running on Muskoka Woods’ own servers; either way it’s used only to sort your note.
+- **Sorting.** Sorting happens in Muskoka Woods’ central Report-A-Problem system, where an AI reads your message to suggest a category, an urgency, and a one-line summary for staff. It’s used only to sort your note.
 - **Following up** — if you shared contact details, the team may use them to reach you about your note.
 - **Update emails, if you asked for them** — an address left for updates is used only to email you as that note moves along, never for anything else. You can stop the emails anytime from the note’s tracking page.
 - **Improving guest care** — ratings, visit counts, and response times are reviewed in aggregate to see how we’re doing.
 
 ## Where your note goes
 
-- **Muskoka Woods guest care staff.** Access inside the portal is permission-based — staff see the departments they work in.
-- **Muskoka Woods’ central Report-A-Problem system.** Your full note — including any contact details and photo you chose to share — is handed off to the central system where the camp team actually works on tickets. It’s run by Muskoka Woods, not a third party.
-- **Staff notification emails.** New notes trigger an email to the responsible team with a summary, the location, and the name and group if you gave them.
-- **Infrastructure.** The portal runs on Muskoka Woods’ own servers, with traffic to woodsvoice.com protected by Cloudflare. Photos are stored at a hard-to-guess address on our server so they can be shared with the teams above.
+- **Muskoka Woods’ central Report-A-Problem system.** This is where your note lives and where the camp team actually works on it. Your full note — including any contact details and photo you chose to share — is delivered there right after you send it. It’s run by Muskoka Woods, not a third party.
+- **Muskoka Woods guest care staff.** The portal shows staff a read-only view of the central system’s tickets. Access is permission-based — staff see the departments they work in.
+- **Infrastructure.** The portal runs on Muskoka Woods’ own servers, with traffic to woodsvoice.com protected by Cloudflare. Photos are stored at a hard-to-guess address on our server so they can be shared with the teams above. The portal also keeps a delivery record of your note (so your tracking code, update emails, and rating keep working) alongside its synced copy of the central system’s tickets.
 
 ## Your tracking code
 
-After you send a note you get a code like **MW-XXXXXX**. It works like a claim ticket: anyone who has the code can see the note’s status, category, location, a short preview of your message, and the public updates staff post — and can leave a rating once it’s resolved, or turn email updates for the note on or off. The tracker never shows your contact details or the email address updates go to. Treat the code like a ticket stub and share it only with your group.
+After you send a note you get a code like **MW-XXXXXX**. It works like a claim ticket: anyone who has the code can see the note’s status, category, location, a short preview of your message, and any messages the team writes back for you — and can leave a rating once it’s resolved, or turn email updates for the note on or off. The tracker never shows your contact details or the email address updates go to. Treat the code like a ticket stub and share it only with your group.
 
 ## How long we keep it
 
-Notes, photos, and ratings are kept as guest care records so the team can spot patterns between seasons and improve. If you’d like something you sent to be corrected or removed, just ask — we can find it fastest if you have your tracking code.
+Notes are kept in the central Report-A-Problem system as guest care records so the team can spot patterns between seasons and improve; the portal keeps its delivery records, photos, and ratings alongside. If you’d like something you sent to be corrected or removed, just ask — we can find it fastest if you have your tracking code.
 
 ## Young guests
 
@@ -65,7 +64,7 @@ If our practices change, we’ll update this page and the date at the top. Quest
   },
 
   staff: {
-    updated: 'August 14, 2026',
+    updated: 'August 17, 2026',
     body: `This notice covers staff and volunteer accounts on WoodsVoice — the admin side of Muskoka Woods’ guest care portal. What guests share with us is covered by the [guest privacy policy](/privacy).
 
 ## Your account
@@ -86,11 +85,11 @@ Signing in stores a signed session token in your browser. It expires after 12 ho
 
 ## Your activity
 
-Actions you take on a submission — status changes, assignments, notes, forwards — are recorded on that submission’s timeline under your name. These entries are part of the guest care record: they’re visible to other staff with access to the submission, and entries marked public are shown to the guest who holds the tracking code.
+The portal’s inbox is a read-only window — ticket work happens in Muskoka Woods’ central Report-A-Problem system, which keeps its own history of who did what. The portal syncs and displays that history to staff with access.
 
 ## Emails
 
-The portal emails you when you’re invited, and sends submission notifications to department addresses and on-call assignees.
+The portal emails you when you’re invited.
 
 ## Who can see your details
 

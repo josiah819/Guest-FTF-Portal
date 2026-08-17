@@ -325,7 +325,7 @@ const INSIGHTS_SYSTEM =
 
 function insightsUser(stats, recentMessages) {
   return `Aggregate stats (last 30 days):\n${JSON.stringify(stats, null, 2)}\n\nRecent submissions:\n` +
-    recentMessages.map(m => `- [${m.type}/${m.urgency}] (${m.category || 'uncategorized'} @ ${m.location || '?'}) ${m.message}`).join('\n');
+    recentMessages.map(m => `- [${m.status}/severity ${m.severity ?? '?'}] (${m.category || 'uncategorized'} @ ${m.location || '?'}) ${m.message}`).join('\n');
 }
 
 async function generateInsights(stats, recentMessages) {
