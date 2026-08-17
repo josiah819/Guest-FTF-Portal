@@ -620,7 +620,7 @@ textarea.input { min-height: 110px; resize: vertical; }
   color: #114D2E;
 }
 .guest-shell .timeline li::before { background: var(--forest); border-color: #FFFFFF; }
-.guest-shell .guest-card a { color: var(--forest); }
+.guest-shell .guest-card a:not(.btn) { color: var(--forest); }
 .guest-shell .spinner {
   border-color: rgba(0, 97, 52, 0.18);
   border-top-color: var(--forest);
