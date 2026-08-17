@@ -1,0 +1,24 @@
+# Local email testing: run a Mailpit catcher and point the backend at it, so
+# invite + guest-update emails can be exercised without a real SMTP account.
+#
+#   docker compose -f docker-compose.yml -f docker-compose.dev.yml -f docker-compose.mailpit.yml up -d --build
+#
+# then open http://localhost:8025 to see every email the app sends.
+# Nothing leaves the machine — Mailpit accepts all mail and delivers none.
+services:
+  mailpit:
+    image: axllent/mailpit
+    restart: unless-stopped
+    ports:
+      - "8025:8025"
+    networks: [internal]
+
+  backend:
+    environment:
+      SMTP_HOST: mailpit
+      SMTP_PORT: 1025
+      SMTP_SECURE: "false"
+      SMTP_FROM: "WoodsVoice <guestcare@woodsvoice.test>"
+    depends_on:
+      mailpit:
+        condition: service_started

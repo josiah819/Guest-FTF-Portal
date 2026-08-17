@@ -3,6 +3,7 @@ import { Link, useParams } from 'react-router-dom';
 import { api } from '../api';
 import { applyTheme } from '../theme';
 import { listMySubmissions, rememberSubmission, forgetSubmission } from './mySubmissions';
+import UpdatesSignup from './UpdatesSignup';
 
 // Status label text comes from admin-editable content; the colours stay ours.
 const STATUS_STYLE = {
@@ -26,6 +27,8 @@ export default function Track() {
   const [comment, setComment] = useState('');
   const [rated, setRated] = useState(false);
   const [rateError, setRateError] = useState('');
+  const [updatesOn, setUpdatesOn] = useState(false);
+  const [updatesStopped, setUpdatesStopped] = useState(false);
 
   useEffect(() => {
     api.publicConfig()
@@ -44,6 +47,8 @@ export default function Track() {
         setData(d);
         setRated(!!d.rating);
         setStars(d.rating || 0);
+        setUpdatesOn(!!d.updates_on);
+        setUpdatesStopped(false);
         rememberSubmission({
           code: d.public_code, message: d.message, location: d.location, createdAt: d.created_at,
         });
@@ -82,6 +87,14 @@ export default function Track() {
     } catch (err) {
       setRateError(err.message);
     }
+  }
+
+  async function stopUpdates() {
+    try {
+      await api.unsubscribeUpdates(codeParam);
+      setUpdatesOn(false);
+      setUpdatesStopped(true);
+    } catch { /* transient — the button stays for another try */ }
   }
 
   const ct = config?.content?.track || {};
@@ -131,6 +144,23 @@ export default function Track() {
                   </li>
                 ))}
               </ul>
+
+              {data.emailUpdates && (
+                updatesOn ? (
+                  <div className="updates-box">
+                    <p className="updates-thanks">📬 {ct.updatesOnNote || 'Email updates are on for this note.'}</p>
+                    <button type="button" className="btn btn-ghost btn-small" style={{ marginTop: 10 }} onClick={stopUpdates}>
+                      {ct.updatesStopLabel || 'Stop email updates'}
+                    </button>
+                  </div>
+                ) : updatesStopped ? (
+                  <div className="updates-box" role="status">
+                    <p className="updates-thanks">{ct.updatesStoppedNote || 'Email updates stopped — you won’t hear from us about this note again.'}</p>
+                  </div>
+                ) : (
+                  <UpdatesSignup code={data.public_code} ct={config?.content?.form || {}} />
+                )
+              )}
 
               {canRate && (
                 <div style={{ borderTop: '1.5px solid var(--line)', marginTop: 8, paddingTop: 18 }}>

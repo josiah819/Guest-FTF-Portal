@@ -26,6 +26,7 @@
 
 const { pool, getSettings } = require('./db');
 const { routeSubmission, recomputeDueDates } = require('./routing');
+const { notifyGuestStatus } = require('./guestUpdates');
 
 const INGEST_URL = process.env.RAP_INGEST_URL || 'https://rap.mwprogram.com/api/ingest';
 const EXPORT_URL = process.env.RAP_EXPORT_URL ||
@@ -206,6 +207,7 @@ async function applyTicket(t, submissionId, taxonomy) {
 
   const client = await pool.connect();
   let changed = false;
+  let statusChangedTo = null;     // a mirrored status change emails an opted-in guest
   let triagedFirstTime = false;   // department landed on a previously unrouted note
   let triageMoved = false;        // dept/urgency changed → due dates need re-deriving
   try {
@@ -234,6 +236,7 @@ async function applyTicket(t, submissionId, taxonomy) {
          VALUES ($1,'status',$2,true)`,
         [submissionId, `Status changed to ${STATUS_LABEL[t.localStatus]}`]);
       changed = true;
+      statusChangedTo = t.localStatus;
     }
 
     // -- triage: department / category / urgency, mirrored from RAP --
@@ -334,6 +337,9 @@ async function applyTicket(t, submissionId, taxonomy) {
   //    clears held_until, so calling it gratuitously would wreck holds).
   if (triagedFirstTime) await routeSubmission(submissionId);
   else if (triageMoved) await recomputeDueDates(submissionId).catch(() => {});
+  // Same guest promise as a staff status change: an opted-in guest hears about
+  // it however the ticket moved. Fire-and-forget — never blocks the tick.
+  if (statusChangedTo) notifyGuestStatus(submissionId, statusChangedTo);
   return changed;
 }
 

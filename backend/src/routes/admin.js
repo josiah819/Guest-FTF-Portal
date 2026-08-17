@@ -1,8 +1,10 @@
 const express = require('express');
 const multer = require('multer');
 const path = require('path');
-const { pool, getSettings, saveSettings } = require('../db');
-const { aw, clampStr, newFileName } = require('../util');
+const { pool, getSettings, saveSettings, deepMerge } = require('../db');
+const { aw, clampStr, newFileName, publicOrigin } = require('../util');
+const { smtpEnabled } = require('../notify');
+const { EMAIL_KINDS, renderGuestEmail, notifyGuestStatus } = require('../guestUpdates');
 const { requireAuth, login, loginGoogle, changePassword } = require('../auth');
 const { googleEnabled, GOOGLE_CLIENT_ID } = require('../google');
 const { attachActor, requirePerm, deptFilter, inDeptScope } = require('../rbac');
@@ -39,7 +41,7 @@ router.use(require('./team'));
 // ---------- settings ----------
 
 router.get('/settings', aw(async (req, res) => {
-  res.json({ settings: await getSettings(), aiKeyPresent: aiEnabled() });
+  res.json({ settings: await getSettings(), aiKeyPresent: aiEnabled(), smtpConfigured: smtpEnabled() });
 }));
 
 router.put('/settings', aw(async (req, res) => {
@@ -80,6 +82,23 @@ router.get('/rap/status', aw(async (req, res) => {
 // clears a mirror halt and kicks an immediate sync.
 router.post('/rap/mirror/test', requirePerm('settings.manage'), aw(async (req, res) => {
   res.json(await probeMirror());
+}));
+
+// Render one guest update email with sample data — the Content tab's preview.
+// Draft (unsaved) content comes in the body so edits show before saving.
+router.post('/emails/preview', requirePerm('content.manage'), aw(async (req, res) => {
+  const kind = EMAIL_KINDS.includes(req.body.kind) ? req.body.kind : 'signup';
+  let settings = await getSettings();
+  if (req.body.content && typeof req.body.content === 'object' && !Array.isArray(req.body.content)) {
+    settings = deepMerge(settings, { content: req.body.content });
+  }
+  const sample = {
+    public_code: 'MW-4KQ7F2',
+    guest_name: 'Alex',
+    location: 'Cabin 4',
+    status: kind === 'resolved' ? 'resolved' : (kind === 'inProgress' ? 'in_progress' : 'new'),
+  };
+  res.json(renderGuestEmail(kind, sample, settings, publicOrigin(req)));
 }));
 
 // Try the chosen (possibly unsaved) AI provider against a canned message.
@@ -306,6 +325,9 @@ router.patch('/submissions/:id', requirePerm(...VIEW_SUBMISSIONS), aw(async (req
     if (req.body.urgency !== undefined || req.body.departmentId !== undefined) {
       await recomputeDueDates(id);
     }
+    // Guest opted into email updates? Tell them — after the response, so a
+    // slow SMTP server never stalls the inbox UI.
+    if (wantsStatus) notifyGuestStatus(id, req.body.status, req);
   }
   res.json({ ok: true });
 }));
@@ -362,7 +384,7 @@ router.get('/export.csv', requirePerm('export.csv'), aw(async (req, res) => {
             au.display_name AS assigned_to,
             coalesce(l.name, s.location_text) AS location,
             s.message, s.ai_summary, s.triage_via,
-            s.guest_name, s.guest_email, s.guest_phone, s.group_name,
+            s.guest_name, s.guest_email, s.guest_phone, s.updates_email, s.group_name,
             s.sla_start_at, s.first_response_due_at, s.first_response_at,
             s.resolution_due_at, s.resolved_at,
             (s.response_breached_at IS NOT NULL) AS response_breached,

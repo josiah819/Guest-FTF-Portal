@@ -42,6 +42,10 @@ export const api = {
   track: (code) => request(`/api/public/track/${encodeURIComponent(code)}`),
   rate: (code, stars, comment) =>
     request(`/api/public/track/${encodeURIComponent(code)}/rating`, { method: 'POST', body: { stars, comment } }),
+  subscribeUpdates: (code, email) =>
+    request(`/api/public/track/${encodeURIComponent(code)}/updates`, { method: 'POST', body: { email } }),
+  unsubscribeUpdates: (code) =>
+    request(`/api/public/track/${encodeURIComponent(code)}/updates`, { method: 'DELETE' }),
 
   // invite acceptance (public, token-keyed)
   joinInfo: (token) => request(`/api/join/${encodeURIComponent(token)}`),
@@ -81,6 +85,7 @@ export const api = {
     return request('/api/admin/branding/logo', { method: 'POST', formData: fd, auth: true });
   },
   aiTest: (ai) => request('/api/admin/ai/test', { method: 'POST', body: { ai }, auth: true }),
+  emailPreview: (kind, content) => request('/api/admin/emails/preview', { method: 'POST', body: { kind, content }, auth: true }),
   metrics: (days, department) =>
     request(`/api/admin/metrics?days=${days}${department ? `&department=${department}` : ''}`, { auth: true }),
   insights: () => request('/api/admin/insights', { method: 'POST', auth: true }),

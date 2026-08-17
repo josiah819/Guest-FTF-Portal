@@ -13,6 +13,7 @@ Guests scan a QR code in their cabin or a common area and just **type what they 
 - **Honest, robust SLA** — targets per department **and** per urgency; clocks start when the owning department opens; scheduler warns at 80% of the window and pages on breaches; median/p90 response times, compliance trends, and per-department scorecards.
 - **Everything editable** — every guest-facing word, label, page section, logo and brand colour lives in **Settings → Content**.
 - **Real email** — SMTP-backed notifications (new urgent items, SLA warnings/breaches, held-queue digests); without SMTP configured everything logs to the submission timeline instead.
+- **Guest email updates** — after sending a note, guests can leave an email address (thank-you screen or tracking page) and get branded emails as it moves along: sign-up confirmation, in progress, resolved. Toggleable in **Settings → Features**, templates editable with live preview in **Settings → Content → Guest update emails**, and the option only appears to guests once SMTP is configured. Test locally with `docker-compose.mailpit.yml` (catches all mail at http://localhost:8025).
 
 Built to match the vision in Cindy's email:
 
@@ -176,7 +177,7 @@ mirror** button probes the endpoint and reports exactly what came back.
 ## Admin controls (Settings)
 
 - **Form fields** — every field (location, category picker, urgency, photo, name, email, phone, group) is `Off / Optional / Required`. Message is always required; the v2 default form is just message + name + photo.
-- **Features** — AI triage, AI insights, submission types, photo upload, urgency handling, tracking codes, CSAT ratings, kiosk mode, hotspot detection, SLA targets (global + per-urgency + warn-%), CSV export, QR generator, RAP hand-off, email notifications.
+- **Features** — AI triage, AI insights, submission types, photo upload, urgency handling, tracking codes, CSAT ratings, guest email updates, kiosk mode, hotspot detection, SLA targets (global + per-urgency + warn-%), CSV export, QR generator, RAP hand-off, email notifications.
 - **AI** — provider picker + models + test connection.
 - **Content** — all guest-facing wording: form microcopy, tracking page, type/urgency/status labels, the whole `/how` page (journey, measures, demo script, pilot plan as editable lists), logos and brand colours.
 - **Categories & Departments** — fully editable; each category routes to a department. Departments carry **hours, after-hours policy, fallback chain, on-call person and SLA overrides** (🕐 Hours on each row).

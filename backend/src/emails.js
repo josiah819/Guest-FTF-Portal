@@ -115,4 +115,33 @@ function inviteEmailHtml({ inviterName, acceptUrl, logoUrl, expiresDays }) {
   return shell({ logoUrl, kicker: 'Guest care portal', bodyHtml });
 }
 
-module.exports = { inviteEmailHtml };
+// Admin-edited template bodies arrive as plain text: blank lines separate
+// paragraphs, single newlines stay as line breaks.
+function textToHtml(text) {
+  return String(text || '').split(/\n{2,}/).filter(p => p.trim()).map(p =>
+    `<p style="margin:0 0 14px;font-family:${FONT_BODY};font-size:15.5px;line-height:1.6;color:${C.ink};">${escapeHtml(p).replace(/\n/g, '<br />')}</p>`
+  ).join('');
+}
+
+// Guest update emails (opt-in on the thank-you / tracking pages). Wording is
+// admin-editable (Settings → Content → Guest update emails); this only wraps
+// it in the branded shell. No ctaUrl (tracking off / no public origin) = no
+// button, the words still carry the message.
+function guestUpdateEmailHtml({ kicker, heading, bodyText, ctaUrl, ctaLabel, footNote, logoUrl }) {
+  const bodyHtml = `
+    <div style="font-family:${FONT_HEAD};font-weight:700;font-size:11px;letter-spacing:0.22em;text-transform:uppercase;color:${C.teal};">
+      ${escapeHtml(kicker)}
+    </div>
+    <h1 style="margin:10px 0 18px;font-family:${FONT_HEAD};font-weight:800;font-size:26px;line-height:1.2;color:${C.ink};">
+      ${escapeHtml(heading)}
+    </h1>
+    ${textToHtml(bodyText)}
+    ${ctaUrl ? ctaButton(ctaUrl, ctaLabel || 'Check my note') : ''}
+    ${footNote ? `<hr style="border:0;border-top:1px solid ${C.line};margin:28px 0 20px;" />
+    <p style="margin:0;font-family:${FONT_BODY};font-size:12.5px;line-height:1.6;color:${C.inkFaint};">
+      ${escapeHtml(footNote)}
+    </p>` : ''}`;
+  return shell({ logoUrl, kicker: 'Guest care updates', bodyHtml });
+}
+
+module.exports = { inviteEmailHtml, guestUpdateEmailHtml };

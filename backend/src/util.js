@@ -50,9 +50,11 @@ function rateLimit({ windowMs, max, message }) {
 const CONFIGURED_BASE = String(process.env.PUBLIC_BASE_URL || '').trim().replace(/\/+$/, '');
 const PLAIN_HOST = /^[a-z0-9.-]+(:\d{1,5})?$/i;
 
+// req is optional — background senders (RAP mirror status emails) have no
+// request, so without PUBLIC_BASE_URL they simply get no absolute links.
 function publicOrigin(req) {
   if (CONFIGURED_BASE) return CONFIGURED_BASE;
-  const host = String(req.get('host') || '');
+  const host = String((req && req.get('host')) || '');
   return PLAIN_HOST.test(host) ? `${req.protocol}://${host}` : '';
 }
 

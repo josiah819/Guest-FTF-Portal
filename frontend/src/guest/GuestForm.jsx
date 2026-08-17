@@ -4,6 +4,7 @@ import QRCode from 'qrcode';
 import { api } from '../api';
 import { applyTheme } from '../theme';
 import { listMySubmissions, rememberSubmission } from './mySubmissions';
+import UpdatesSignup from './UpdatesSignup';
 
 const TYPE_IDS = ['issue', 'request', 'feedback', 'compliment'];
 const URGENCY_IDS = ['low', 'normal', 'high', 'safety'];
@@ -277,6 +278,11 @@ export default function GuestForm() {
                 )}
               </>
             ))}
+            {/* Kiosks are shared screens — no email capture there; the follow
+                QR lands guests on the tracking page, which offers the same box. */}
+            {config.features.emailUpdates && !kiosk && (
+              <UpdatesSignup code={success.code} ct={ct} />
+            )}
             <div style={{ marginTop: 22 }}>
               <button className="btn btn-ghost btn-small" onClick={resetAll}>{ct.sendAnotherLabel || 'Send another'}</button>
             </div>

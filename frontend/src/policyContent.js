@@ -7,7 +7,7 @@
 
 export const DEFAULT_POLICY = {
   guest: {
-    updated: 'August 14, 2026',
+    updated: 'August 17, 2026',
     body: `WoodsVoice is Muskoka Woods’ guest care portal — the QR codes around camp and the form at woodsvoice.com. This page explains what happens to the information you share when you send us a note. Staff and volunteer accounts are covered by the separate [staff privacy notice](/privacy/staff).
 
 ## The short version
@@ -21,6 +21,7 @@ export const DEFAULT_POLICY = {
 - **Your message** — the only thing that’s always required.
 - **Choices you make on the form** — the kind of note, how urgent it feels, a category, and a location (picked from the list, or filled in automatically when you scan a QR sign).
 - **Contact details, if you add them** — name, school or group, email, phone. These let us follow up with you directly.
+- **An email for updates, if you ask for them** — after sending a note (or from its tracking page) you can leave an email address to get progress emails about that note.
 - **A photo, if you attach one.**
 - **How and when the note arrived** — whether the form was opened from a QR sign, a kiosk, or the web, and the time it was sent.
 
@@ -36,6 +37,7 @@ export const DEFAULT_POLICY = {
 - **Getting it to the right people** — notes are routed to the team responsible for the category and location.
 - **Sorting.** The text of your message may be processed by an AI service to suggest a category, an urgency, and a one-line summary for staff. Depending on how the portal is configured this is Anthropic’s Claude service or a model running on Muskoka Woods’ own servers; either way it’s used only to sort your note.
 - **Following up** — if you shared contact details, the team may use them to reach you about your note.
+- **Update emails, if you asked for them** — an address left for updates is used only to email you as that note moves along, never for anything else. You can stop the emails anytime from the note’s tracking page.
 - **Improving guest care** — ratings, visit counts, and response times are reviewed in aggregate to see how we’re doing.
 
 ## Where your note goes
@@ -47,7 +49,7 @@ export const DEFAULT_POLICY = {
 
 ## Your tracking code
 
-After you send a note you get a code like **MW-XXXXXX**. It works like a claim ticket: anyone who has the code can see the note’s status, category, location, and the public updates staff post — and can leave a rating once it’s resolved. The tracker never shows your message or your contact details. Treat the code like a ticket stub and share it only with your group.
+After you send a note you get a code like **MW-XXXXXX**. It works like a claim ticket: anyone who has the code can see the note’s status, category, location, a short preview of your message, and the public updates staff post — and can leave a rating once it’s resolved, or turn email updates for the note on or off. The tracker never shows your contact details or the email address updates go to. Treat the code like a ticket stub and share it only with your group.
 
 ## How long we keep it
 

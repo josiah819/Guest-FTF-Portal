@@ -48,6 +48,7 @@ const DEFAULT_SETTINGS = {
     urgency: true,            // urgency handling + safety flagging (selector visibility is fields.urgency)
     tracking: true,           // public status page via tracking code
     csat: true,               // guest star-rating once resolved
+    emailUpdates: true,       // guests may leave an email for status-update emails (hidden from guests until SMTP is configured)
     kioskMode: true,          // ?kiosk=1 large-format, auto-resetting form
     hotspots: true,           // repeat-issue detection per location+category
     sla: true,                // response/resolution targets + overdue flags
@@ -114,6 +115,11 @@ const DEFAULT_SETTINGS = {
       mySubmissionsLabel: 'Check my submissions',
       kioskResetNote: 'This screen resets automatically.',
       trackLinkLabel: 'My submissions →',
+      updatesPrompt: 'Want email updates on this?',
+      updatesHint: 'We’ll only email you about this note — nothing else, ever.',
+      updatesPlaceholder: 'you@example.com',
+      updatesButton: 'Email me updates',
+      updatesThanks: 'You’re on the list — we’ll email you when this moves along.',
     },
     track: {
       pill: 'Submission tracker',
@@ -128,6 +134,9 @@ const DEFAULT_SETTINGS = {
       ratingCommentPlaceholder: 'Anything to add? (optional)',
       sendRatingLabel: 'Send rating',
       newSubmissionLabel: '← New submission',
+      updatesOnNote: 'Email updates are on for this note.',
+      updatesStopLabel: 'Stop email updates',
+      updatesStoppedNote: 'Email updates stopped — you won’t hear from us about this note again.',
     },
     // The printable QR sheet (Locations & QR codes → Sign editor). Newlines in
     // title/subtitle are real line breaks on the sign.
@@ -140,6 +149,30 @@ const DEFAULT_SETTINGS = {
       showUrl: true,       // append each location’s /?loc= link to the fine print
       qrShape: 'dots',     // dots | squares
       qrCard: false,       // true = forest-on-white card (safest for older scanner apps)
+    },
+    // Guest update emails (features.emailUpdates). Placeholders: {name} {code}
+    // {location} {orgName} {status}. Bodies are plain text — blank lines start
+    // a new paragraph; the branded HTML shell is applied at send time.
+    emails: {
+      footerNote: 'You’re receiving this because you asked for updates on a note you sent to {orgName}. To stop, open your note with the button above and tap “Stop email updates”.',
+      signup: {
+        subject: 'You’re on the list — {code}',
+        heading: 'We’ll keep you posted',
+        body: 'Hi {name},\n\nThanks for your note — it’s with our team now. You’ll get an email from us whenever it moves along, and you can check on it anytime with the button below.',
+        cta: 'Check my note',
+      },
+      inProgress: {
+        subject: 'We’re on it — {code}',
+        heading: 'Your note is in progress',
+        body: 'Hi {name},\n\nOur team has picked up your note and is working on it now. We’ll email you again as soon as it’s resolved.',
+        cta: 'See the latest',
+      },
+      resolved: {
+        subject: 'All sorted — {code}',
+        heading: 'This one’s resolved',
+        body: 'Hi {name},\n\nWe’ve just marked your note as resolved. If something still isn’t right, send us another note and we’ll take a second look.\n\nGot 10 seconds? We’d love to know how we did.',
+        cta: 'View & rate it',
+      },
     },
     // Privacy pages (/privacy and /privacy/staff). Empty = the built-in policy
     // text bundled with the frontend (policyContent.js); a non-empty body
@@ -569,4 +602,4 @@ async function migrateAndSeed() {
   }
 }
 
-module.exports = { pool, getSettings, saveSettings, migrateAndSeed, DEFAULT_SETTINGS };
+module.exports = { pool, getSettings, saveSettings, migrateAndSeed, DEFAULT_SETTINGS, deepMerge };

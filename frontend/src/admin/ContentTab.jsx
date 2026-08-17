@@ -82,6 +82,41 @@ function LogoSlot({ label, hint, value, fallback, slot, onUploaded, onError, dar
   );
 }
 
+// The three guest update emails (features.emailUpdates), in the order guests
+// meet them.
+const EMAIL_KINDS = [
+  ['signup', 'Sign-up confirmation', 'Sent the moment a guest leaves their email.'],
+  ['inProgress', 'In progress', 'Sent when the team picks the note up (status → In progress).'],
+  ['resolved', 'Resolved', 'Sent when the note is marked resolved.'],
+];
+
+function EmailTemplateEditor({ kind, label, hint, tpl, onField, onPreview, preview, previewing }) {
+  return (
+    <div style={{ marginBottom: 22 }}>
+      <div className="field-label" style={{ marginTop: 0, display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
+        {label}
+        <button type="button" className="btn btn-ghost btn-small" onClick={() => onPreview(kind)} disabled={previewing}>
+          {preview ? 'Hide preview' : (previewing ? 'Rendering…' : '👁 Preview')}
+        </button>
+      </div>
+      <p className="hint" style={{ marginTop: 2 }}>{hint}</p>
+      <div className="form-grid">
+        <TextRow label="Subject" value={tpl.subject} onChange={onField(kind, 'subject')} />
+        <TextRow label="Heading" value={tpl.heading} onChange={onField(kind, 'heading')} />
+      </div>
+      <TextRow label="Body" area value={tpl.body} onChange={onField(kind, 'body')} />
+      <TextRow label="Button label" value={tpl.cta} onChange={onField(kind, 'cta')} />
+      {preview && (
+        <div style={{ marginTop: 10 }}>
+          <div className="hint" style={{ margin: '0 0 6px' }}><b>Subject:</b> {preview.subject}</div>
+          <iframe title={`${label} preview`} srcDoc={preview.html} sandbox=""
+            style={{ width: '100%', height: 520, border: '1.5px solid var(--line)', borderRadius: 10, background: '#F7F4EC' }} />
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function ContentTab({ s, patch, patchPath, applySettings, setToast }) {
   const c = s.content || {};
   const form = c.form || {};
@@ -89,9 +124,31 @@ export default function ContentTab({ s, patch, patchPath, applySettings, setToas
   const labels = c.labels || {};
   const branding = c.branding || {};
   const colors = branding.colors || {};
+  const emails = c.emails || {};
 
   const setForm = (key) => (v) => patchPath('content', ['form', key], v);
   const setTrack = (key) => (v) => patchPath('content', ['track', key], v);
+  const setEmailField = (kind, key) => (v) => patchPath('content', ['emails', kind, key], v);
+
+  // Server-rendered previews (the branded shell lives backend-side); rendered
+  // from the current draft, so unsaved edits show. Re-preview after editing.
+  const [emailPreviews, setEmailPreviews] = useState({});
+  const [previewingKind, setPreviewingKind] = useState('');
+  async function togglePreview(kind) {
+    if (emailPreviews[kind]) {
+      setEmailPreviews(p => { const next = { ...p }; delete next[kind]; return next; });
+      return;
+    }
+    setPreviewingKind(kind);
+    try {
+      const r = await api.emailPreview(kind, c);
+      setEmailPreviews(p => ({ ...p, [kind]: r }));
+    } catch (err) {
+      setToast(err.message);
+    } finally {
+      setPreviewingKind('');
+    }
+  }
 
   return (
     <>
@@ -174,6 +231,11 @@ export default function ContentTab({ s, patch, patchPath, applySettings, setToas
           <TextRow label="Kiosk follow-along note" value={form.kioskFollowNote} onChange={setForm('kioskFollowNote')} />
           <TextRow label="'My submissions' button" value={form.mySubmissionsLabel} onChange={setForm('mySubmissionsLabel')} />
           <TextRow label="Footer: tracking link" value={form.trackLinkLabel} onChange={setForm('trackLinkLabel')} />
+          <TextRow label="Email-updates prompt" value={form.updatesPrompt} onChange={setForm('updatesPrompt')} />
+          <TextRow label="Email-updates fine print" value={form.updatesHint} onChange={setForm('updatesHint')} />
+          <TextRow label="Email-updates placeholder" value={form.updatesPlaceholder} onChange={setForm('updatesPlaceholder')} />
+          <TextRow label="Email-updates button" value={form.updatesButton} onChange={setForm('updatesButton')} />
+          <TextRow label="Email-updates thanks" value={form.updatesThanks} onChange={setForm('updatesThanks')} />
         </div>
       </Section>
 
@@ -200,7 +262,26 @@ export default function ContentTab({ s, patch, patchPath, applySettings, setToas
           <TextRow label="Rating comment placeholder" value={track.ratingCommentPlaceholder} onChange={setTrack('ratingCommentPlaceholder')} />
           <TextRow label="Send-rating button" value={track.sendRatingLabel} onChange={setTrack('sendRatingLabel')} />
           <TextRow label="Footer: new submission" value={track.newSubmissionLabel} onChange={setTrack('newSubmissionLabel')} />
+          <TextRow label="Email-updates-on note" value={track.updatesOnNote} onChange={setTrack('updatesOnNote')} />
+          <TextRow label="Stop-updates button" value={track.updatesStopLabel} onChange={setTrack('updatesStopLabel')} />
+          <TextRow label="Updates-stopped note" value={track.updatesStoppedNote} onChange={setTrack('updatesStoppedNote')} />
         </div>
+      </Section>
+
+      <Section title="Guest update emails" hint="The branded emails guests get after leaving their address for updates.">
+        <p className="hint" style={{ marginTop: 0 }}>
+          Placeholders work in every field: <code>{'{name}'}</code> guest’s name · <code>{'{code}'}</code> tracking
+          code · <code>{'{location}'}</code> · <code>{'{orgName}'}</code> · <code>{'{status}'}</code>.
+          In the body, a blank line starts a new paragraph. The logo, colours and button all follow your branding
+          automatically — preview any email to see it assembled.
+        </p>
+        {EMAIL_KINDS.map(([kind, label, hint]) => (
+          <EmailTemplateEditor key={kind} kind={kind} label={label} hint={hint}
+            tpl={emails[kind] || {}} onField={setEmailField}
+            onPreview={togglePreview} preview={emailPreviews[kind]} previewing={previewingKind === kind} />
+        ))}
+        <TextRow label="Footer note (appears on every update email)" area value={emails.footerNote}
+          onChange={(v) => patchPath('content', ['emails', 'footerNote'], v)} />
       </Section>
 
       <Section title="Privacy pages" hint="The guest privacy policy and the staff privacy notice.">

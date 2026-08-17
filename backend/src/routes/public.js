@@ -9,6 +9,7 @@ const { routeSubmission } = require('../routing');
 const { forwardSubmission } = require('../forward');
 const { enqueueRap } = require('../rap');
 const { rapMirrorOwnsTriage } = require('../rapMirror');
+const { emailUpdatesEnabled, sendGuestEmail } = require('../guestUpdates');
 
 const router = express.Router();
 
@@ -54,6 +55,7 @@ router.get('/config', aw(async (req, res) => {
       urgency: settings.features.urgency && settings.fields.urgency !== 'off',
       tracking: settings.features.tracking,
       csat: settings.features.csat,
+      emailUpdates: emailUpdatesEnabled(settings),
       kioskMode: settings.features.kioskMode,
       aiCategorization: settings.features.aiCategorization,
     },
@@ -223,6 +225,7 @@ router.get('/track/:code', aw(async (req, res) => {
   const { rows } = await pool.query(
     `SELECT s.public_code, s.type, s.status, s.urgency, s.created_at, s.resolved_at, s.rating,
             LEFT(s.message, 200) AS message,
+            (s.updates_email <> '') AS updates_on,
             c.name AS category, c.emoji, l.name AS location
        FROM submissions s
        LEFT JOIN categories c ON c.id = s.category_id
@@ -234,7 +237,43 @@ router.get('/track/:code', aw(async (req, res) => {
     `SELECT kind, detail, created_at FROM submission_events
       WHERE submission_id = (SELECT id FROM submissions WHERE public_code = $1)
         AND is_public ORDER BY created_at`, [code]);
-  res.json({ ...rows[0], events, csat: settings.features.csat });
+  res.json({ ...rows[0], events, csat: settings.features.csat, emailUpdates: emailUpdatesEnabled(settings) });
+}));
+
+// Email updates opt-in. The public code is the capability, same trust model as
+// rating: whoever holds the code may point updates at their inbox. Only the
+// on/off flag is ever readable back — never the address itself.
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+router.post('/track/:code/updates', rateLimit({ windowMs: 5 * 60 * 1000, max: 10 }), aw(async (req, res) => {
+  const settings = await getSettings();
+  if (!emailUpdatesEnabled(settings)) return res.status(403).json({ error: 'Email updates aren’t available right now.' });
+  const code = clampStr(req.params.code, 20).toUpperCase();
+  const email = clampStr(req.body.email, 200);
+  if (!EMAIL_RE.test(email)) return res.status(400).json({ error: 'That email doesn’t look right — mind checking it?' });
+
+  const { rows } = await pool.query(
+    `UPDATE submissions SET updates_email = $1 WHERE public_code = $2 RETURNING id`, [email, code]);
+  if (!rows.length) return res.status(404).json({ error: 'We couldn’t find that submission.' });
+  await pool.query(
+    `INSERT INTO submission_events (submission_id, kind, detail, is_public)
+     VALUES ($1,'notify','Email updates turned on',true)`, [rows[0].id]);
+  await sendGuestEmail('signup', rows[0].id, req);
+  res.json({ ok: true });
+}));
+
+// Stopping updates works regardless of the feature toggle — a guest must
+// always be able to opt out.
+router.delete('/track/:code/updates', aw(async (req, res) => {
+  const code = clampStr(req.params.code, 20).toUpperCase();
+  const { rows } = await pool.query(
+    `UPDATE submissions SET updates_email = '' WHERE public_code = $1 AND updates_email <> '' RETURNING id`, [code]);
+  if (rows.length) {
+    await pool.query(
+      `INSERT INTO submission_events (submission_id, kind, detail, is_public)
+       VALUES ($1,'notify','Email updates turned off',true)`, [rows[0].id]);
+  }
+  res.json({ ok: true });
 }));
 
 router.post('/track/:code/rating', aw(async (req, res) => {

@@ -143,6 +143,7 @@ CREATE TABLE IF NOT EXISTS submissions (
   guest_name      TEXT NOT NULL DEFAULT '',
   guest_email     TEXT NOT NULL DEFAULT '',
   guest_phone     TEXT NOT NULL DEFAULT '',
+  updates_email   TEXT NOT NULL DEFAULT '',              -- guest opted into email updates (thank-you / tracking page)
   group_name      TEXT NOT NULL DEFAULT '',
   photo_path      TEXT NOT NULL DEFAULT '',
   source          TEXT NOT NULL DEFAULT 'qr',             -- qr | web | kiosk
@@ -178,6 +179,7 @@ ALTER TABLE submissions ADD COLUMN IF NOT EXISTS response_warned_at TIMESTAMPTZ;
 ALTER TABLE submissions ADD COLUMN IF NOT EXISTS response_breached_at TIMESTAMPTZ;
 ALTER TABLE submissions ADD COLUMN IF NOT EXISTS resolution_warned_at TIMESTAMPTZ;
 ALTER TABLE submissions ADD COLUMN IF NOT EXISTS resolution_breached_at TIMESTAMPTZ;
+ALTER TABLE submissions ADD COLUMN IF NOT EXISTS updates_email TEXT NOT NULL DEFAULT '';
 
 CREATE INDEX IF NOT EXISTS idx_submissions_created ON submissions (created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_submissions_status  ON submissions (status);

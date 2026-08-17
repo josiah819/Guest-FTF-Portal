@@ -25,6 +25,8 @@ const FEATURE_DEFS = [
   { key: 'urgency', label: 'Urgency handling', desc: 'Safety-flagged items float to the top of the inbox and trigger the dashboard alert.' },
   { key: 'tracking', label: 'Submission tracking', desc: 'Guests get a code like MW-7KQ4F2 and a status page, which cuts down “did you get my note?” follow-ups.' },
   { key: 'csat', label: 'Guest satisfaction ratings', desc: 'Once a submission is resolved, the tracking page invites a 1–5 star rating. Feeds the dashboard CSAT metric.' },
+  { key: 'emailUpdates', label: 'Guest email updates', extra: 'emailUpdates',
+    desc: 'After sending a note, guests can leave an email address and get a branded email as it moves along — picked up, resolved. The ask, the wording and the email templates are all editable on the Content tab.' },
   { key: 'kioskMode', label: 'Kiosk mode', desc: 'Big-button, auto-resetting version of the form at /?kiosk=1 — made for a lobby tablet.' },
   { key: 'hotspots', label: 'Hotspot detection', desc: 'Flags any location + category combo reported 2+ times in 7 days, so a recurring problem is impossible to miss.' },
   { key: 'sla', label: 'Response-time targets (SLA)', desc: 'Track first-response and resolution times against your targets; overdue items get called out.', extra: 'sla' },
@@ -290,6 +292,7 @@ export default function Settings() {
 
   const [s, setS] = useState(null);
   const [aiKey, setAiKey] = useState(false);
+  const [smtpOk, setSmtpOk] = useState(false);
   const [departments, setDepartments] = useState([]);
   const [tab, setTab] = useState(tabs[0].id);
   const [dirtySections, setDirtySections] = useState(() => new Set());
@@ -302,7 +305,7 @@ export default function Settings() {
   const [mirrorTesting, setMirrorTesting] = useState(false);
 
   useEffect(() => {
-    api.settings().then(d => { setS(d.settings); setAiKey(d.aiKeyPresent); });
+    api.settings().then(d => { setS(d.settings); setAiKey(d.aiKeyPresent); setSmtpOk(!!d.smtpConfigured); });
     api.catalog('departments').then(d => setDepartments(d.rows));
     api.assignees().then(d => setAssignees(d.rows)).catch(() => {});
     api.rapStatus().then(setRap).catch(() => {});
@@ -519,6 +522,13 @@ export default function Settings() {
                         </div>
                       )}
                     </>}
+                  </div>
+                )}
+                {f.extra === 'emailUpdates' && s.features.emailUpdates !== false && (
+                  <div className="hint" style={{ marginTop: 10 }}>
+                    {smtpOk
+                      ? <>SMTP configured ✓ — guests see the email option on the thank-you screen and their tracking page.</>
+                      : <b style={{ color: 'var(--orange)' }}>SMTP isn’t configured on the server (SMTP_HOST… in .env) — the option stays hidden from guests until it is.</b>}
                   </div>
                 )}
                 {f.extra === 'email' && s.features.emailForward && (
