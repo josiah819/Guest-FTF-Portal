@@ -98,8 +98,7 @@ export function Sign({ row, origin, cfg }) {
       <span className="sign__rule" aria-hidden="true" />
       <div className="sign__loc">{row.name}</div>
       <p className="sign__note">{cfg.note}{cfg.showUrl ? `${cfg.note ? ' · ' : ''}${host}/?loc=${row.slug}` : ''}</p>
-      <span className="sign__tree sign__tree--left" aria-hidden="true" />
-      <span className="sign__tree sign__tree--right" aria-hidden="true" />
+      <span className="sign__treeline" aria-hidden="true" />
     </div>
   );
 }
