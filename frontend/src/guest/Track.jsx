@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { api } from '../api';
 import { applyTheme } from '../theme';
+import useSoftReload from '../useSoftReload';
 import { listMySubmissions, rememberSubmission, forgetSubmission } from './mySubmissions';
 import UpdatesSignup from './UpdatesSignup';
 
@@ -66,11 +67,9 @@ export default function Track() {
   // List view: everything this browser has sent, freshened from the server.
   // 404 = the submission is gone (deleted / wiped) → drop it from the device;
   // any other failure keeps the saved entry and shows it without live status.
-  useEffect(() => {
-    if (codeParam) return;
+  function loadList() {
     const mine = listMySubmissions();
     if (!mine.length) { setList([]); return; }
-    let on = true;
     Promise.all(mine.map(s =>
       api.track(s.code)
         .then(d => ({ ...s, ...d, live: true }))
@@ -78,9 +77,24 @@ export default function Track() {
           if (err.status === 404) { forgetSubmission(s.code); return null; }
           return { ...s, live: false };
         })
-    )).then(rows => { if (on) setList(rows.filter(Boolean)); });
-    return () => { on = false; };
+    )).then(rows => setList(rows.filter(Boolean)));
+  }
+
+  useEffect(() => {
+    if (!codeParam) loadList();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [codeParam]);
+
+  // Statuses move on the RAP board while a guest watches this page — pull the
+  // fresh state in quietly. Detail refresh only touches `data`, so an
+  // in-progress rating (stars picked, comment half-typed) survives untouched.
+  useSoftReload(() => {
+    if (codeParam) {
+      api.track(codeParam).then(d => { setData(d); setError(''); }).catch(() => {});
+    } else {
+      loadList();
+    }
+  });
 
   async function sendRating() {
     setRateError('');
@@ -170,7 +184,7 @@ export default function Track() {
                   </div>
                 ) : updatesStopped ? (
                   <div className="updates-box" role="status">
-                    <p className="updates-thanks">{ct.updatesStoppedNote || 'Email updates stopped — you won’t hear from us about this note again.'}</p>
+                    <p className="updates-thanks">{ct.updatesStoppedNote || 'Email updates are off. We won’t email you about this submission again.'}</p>
                   </div>
                 ) : (
                   <UpdatesSignup code={data.public_code} ct={config?.content?.form || {}} />

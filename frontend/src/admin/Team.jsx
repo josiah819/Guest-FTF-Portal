@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { api } from '../api';
+import useSoftReload from '../useSoftReload';
 import { useActor } from './AdminApp';
 import { useConfirm } from '../components/ConfirmDialog';
 
@@ -381,6 +382,10 @@ export default function Team() {
     api.permissionCatalog().then(d => setPermissions(d.permissions));
     api.catalog('departments').then(d => setDepartments(d.rows));
   }, []);
+
+  // Rows are keyed by id and the name/email inputs are uncontrolled, so a
+  // background refresh never eats a teammate's half-typed edit.
+  useSoftReload(reload);
 
   useEffect(() => {
     if (!toast) return;

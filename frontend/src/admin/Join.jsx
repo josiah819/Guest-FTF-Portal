@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { api, setToken } from '../api';
+import useSoftReload from '../useSoftReload';
 import GoogleButton from '../components/GoogleButton';
 
 // Invite landing page (/join/:token) — where an emailed invite becomes an
@@ -25,6 +26,14 @@ export default function Join() {
       })
       .catch(err => setDead(err.message));
   }, [token]);
+
+  // Info only — the suggested username the person may have edited stays put.
+  // A revoked invite flips to the dead screen; a network blip doesn't.
+  useSoftReload(() => {
+    api.joinInfo(token)
+      .then(setInfo)
+      .catch(err => { if (err.status === 404 || err.status === 410) setDead(err.message); });
+  });
 
   function finish(res) {
     setToken(res.token);

@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import QRCode from 'qrcode';
 import { api } from '../api';
+import useSoftReload from '../useSoftReload';
 import { useActor } from './AdminApp';
 import { useConfirm } from '../components/ConfirmDialog';
 
@@ -198,6 +199,10 @@ export default function LocationsQR() {
       })
       .catch(() => setSignState({ ...SIGN_DEFAULTS }));
   }, []);
+
+  // Locations only — the sign editor holds unsaved edits, so its state is
+  // never refreshed from the server behind the editor's back.
+  useSoftReload(load);
 
   function flash(msg) {
     setToast(msg);

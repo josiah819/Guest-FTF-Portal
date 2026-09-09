@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { api, getToken } from '../api';
+import useSoftReload from '../useSoftReload';
 import { useActor } from './AdminApp';
 
 // The RAP board is the system of record — this inbox is a read-only window
@@ -74,6 +75,11 @@ function Drawer({ id, onClose, boardBase }) {
   useEffect(() => {
     api.submission(id).then(setData).catch(() => onClose());
   }, [id, onClose]);
+
+  // An open ticket keeps up with the board; failures don't close the drawer.
+  useSoftReload(() => {
+    api.submission(id).then(setData).catch(() => {});
+  });
 
   if (!data) return (
     <>
@@ -205,6 +211,14 @@ export default function Submissions() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchParams, page]);
   useEffect(() => { load(); }, [load]);
+
+  // The board syncs in server-side every minute — pull it through to the
+  // inbox without touching filters or whichever row is expanded.
+  useSoftReload(() => {
+    load();
+    api.submissionStats().then(setStats).catch(() => {});
+    api.rapStatus().then(setRap).catch(() => {});
+  });
 
   const facets = stats?.facets || { statuses: [], categories: [], departments: [] };
 

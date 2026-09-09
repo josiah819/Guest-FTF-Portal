@@ -1,5 +1,6 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { api } from '../api';
+import useSoftReload from '../useSoftReload';
 import { useActor } from './AdminApp';
 import ContentTab from './ContentTab';
 
@@ -50,6 +51,7 @@ function CatalogEditor({ table, departments }) {
   const [draft, setDraft] = useState({ name: '', emoji: '📝', departmentId: '' });
   const load = () => api.catalog(table).then(d => setRows(d.rows));
   useEffect(() => { load(); /* eslint-disable-line react-hooks/exhaustive-deps */ }, [table]);
+  useSoftReload(load);
 
   async function add(e) {
     e.preventDefault();
@@ -249,6 +251,23 @@ export default function Settings() {
     api.catalog('departments').then(d => setDepartments(d.rows));
     api.rapStatus().then(setRap).catch(() => {});
   }, []);
+
+  // `s` doubles as the form state, so it only refreshes while nothing is
+  // dirty — checked again when the response lands, in case an edit started
+  // while the request was in flight. The RAP readout is display-only and
+  // always refreshes.
+  const editGuard = useRef(false);
+  editGuard.current = dirtySections.size > 0 || saving;
+  useSoftReload(() => {
+    api.rapStatus().then(setRap).catch(() => {});
+    if (editGuard.current) return;
+    api.settings().then(d => {
+      if (editGuard.current) return;
+      setS(d.settings);
+      setAiKey(d.aiKeyPresent);
+      setSmtpOk(!!d.smtpConfigured);
+    }).catch(() => {});
+  });
 
   useEffect(() => {
     if (!toast) return;

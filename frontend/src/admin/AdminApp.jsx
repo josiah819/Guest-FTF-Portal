@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import { Link, NavLink, Navigate, Route, Routes } from 'react-router-dom';
 import { api, getToken, setToken } from '../api';
+import useSoftReload from '../useSoftReload';
 import GoogleButton from '../components/GoogleButton';
 import Dashboard from './Dashboard';
 import Submissions from './Submissions';
@@ -112,6 +113,13 @@ export default function AdminApp() {
       .then(setActor)
       .catch(err => setActorError(err.message));
   }, [authed]);
+
+  // Role/permission edits land without a re-login; an expired token drops to
+  // the sign-in screen (the 401 handler fires the logout event). Background
+  // failures stay silent — a blip shouldn't replace the whole admin UI.
+  useSoftReload(() => {
+    if (authed) api.me().then(setActor).catch(() => {});
+  });
 
   if (!authed) {
     return <Login onLogin={() => setAuthed(true)} />;

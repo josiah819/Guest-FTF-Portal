@@ -3,6 +3,7 @@ import { Link, useSearchParams } from 'react-router-dom';
 import QRCode from 'qrcode';
 import { api } from '../api';
 import { applyTheme } from '../theme';
+import useSoftReload from '../useSoftReload';
 import { listMySubmissions, rememberSubmission } from './mySubmissions';
 import UpdatesSignup from './UpdatesSignup';
 
@@ -102,6 +103,14 @@ export default function GuestForm() {
     return () => clearTimeout(resetTimer.current);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Config only — never the form state, so a guest mid-message loses nothing.
+  // Also how a kiosk that failed to load self-heals once the network is back.
+  useSoftReload(() => {
+    api.publicConfig()
+      .then(cfg => { setConfig(cfg); applyTheme(cfg.content?.branding); setLoadError(''); })
+      .catch(() => {});
+  });
 
   const set = (key) => (value) => setForm(f => ({ ...f, [key]: value }));
 

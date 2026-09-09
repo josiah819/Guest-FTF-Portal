@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../api';
+import useSoftReload from '../useSoftReload';
 import { AreaChart, BarList, Donut } from '../components/Charts';
 import { useActor } from './AdminApp';
 
@@ -34,6 +35,13 @@ export default function Dashboard() {
     setM(null);
     api.metrics(days, dept).then(setM).catch(err => setError(err.message));
   }, [days, dept]);
+
+  // No setM(null) here — fresh numbers swap in without a spinner flash, and a
+  // wall-mounted dashboard recovers on its own after a network blip.
+  useSoftReload(() => {
+    api.metrics(days, dept).then(d => { setM(d); setError(''); }).catch(() => {});
+    api.submissionStats().then(d => setDeptOptions(d.facets?.departments || [])).catch(() => {});
+  });
 
   async function loadInsights() {
     setInsightsBusy(true);

@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../api';
 import { applyTheme } from '../theme';
+import useSoftReload from '../useSoftReload';
 import { DEFAULT_POLICY } from '../policyContent';
 
 // Privacy pages. Both live on the guest surface so they're readable without an
@@ -78,6 +79,12 @@ function PolicyPage({ which, kicker, title }) {
       .catch(() => setConfig({}));
     window.scrollTo({ top: 0 });
   }, []);
+
+  useSoftReload(() => {
+    api.publicConfig()
+      .then(cfg => { setConfig(cfg); applyTheme(cfg.content?.branding); })
+      .catch(() => {});
+  });
 
   const branding = config?.content?.branding || {};
   const orgName = config?.general?.orgName || 'Muskoka Woods';
