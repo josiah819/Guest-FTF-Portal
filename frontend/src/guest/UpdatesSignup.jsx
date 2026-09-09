@@ -28,7 +28,7 @@ export default function UpdatesSignup({ code, ct, onSubscribed }) {
   if (done) {
     return (
       <div className="updates-box" role="status">
-        <p className="updates-thanks">✅ {ct.updatesThanks || 'You’re on the list — we’ll email you when this moves along.'}</p>
+        <p className="updates-thanks">✅ {ct.updatesThanks || 'Got it. We’ll email you when there’s an update.'}</p>
       </div>
     );
   }
@@ -51,7 +51,7 @@ export default function UpdatesSignup({ code, ct, onSubscribed }) {
           {busy ? '…' : (ct.updatesButton || 'Email me updates')}
         </button>
       </div>
-      <p className="updates-hint">{ct.updatesHint || 'We’ll only email you about this note — nothing else, ever.'}</p>
+      <p className="updates-hint">{ct.updatesHint || 'We only use your email for updates on this submission.'}</p>
       {error && <div className="error-note" role="alert">{error}</div>}
     </form>
   );

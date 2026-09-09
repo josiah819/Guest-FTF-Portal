@@ -91,10 +91,10 @@ const DEFAULT_SETTINGS = {
       kioskResetNote: 'This screen resets automatically.',
       trackLinkLabel: 'My submissions →',
       updatesPrompt: 'Want email updates on this?',
-      updatesHint: 'We’ll only email you about this note — nothing else, ever.',
+      updatesHint: 'We only use your email for updates on this submission.',
       updatesPlaceholder: 'you@example.com',
       updatesButton: 'Email me updates',
-      updatesThanks: 'You’re on the list — we’ll email you when this moves along.',
+      updatesThanks: 'Got it. We’ll email you when there’s an update.',
     },
     track: {
       pill: 'Submission tracker',
@@ -112,7 +112,7 @@ const DEFAULT_SETTINGS = {
       newSubmissionLabel: '← New submission',
       updatesOnNote: 'Email updates are on for this note.',
       updatesStopLabel: 'Stop email updates',
-      updatesStoppedNote: 'Email updates stopped — you won’t hear from us about this note again.',
+      updatesStoppedNote: 'Email updates are off. We won’t email you about this submission again.',
     },
     // The printable QR sheet (Locations & QR codes → Sign editor). Newlines in
     // title/subtitle are real line breaks on the sign.
@@ -276,6 +276,24 @@ async function migrateAndSeed() {
         dirty = true;
         console.log('[migrate] retired the FTF webhook settings (replaced by the RAP hand-off)');
       }
+      // Reword the email-updates microcopy. The seed wrote the old strings
+      // into every install's settings row, so only an exact match is replaced
+      // — anything an admin edited in Settings → Content is left alone.
+      const REWORDED = [
+        ['form', 'updatesHint', 'We’ll only email you about this note — nothing else, ever.',
+          DEFAULT_SETTINGS.content.form.updatesHint],
+        ['form', 'updatesThanks', 'You’re on the list — we’ll email you when this moves along.',
+          DEFAULT_SETTINGS.content.form.updatesThanks],
+        ['track', 'updatesStoppedNote', 'Email updates stopped — you won’t hear from us about this note again.',
+          DEFAULT_SETTINGS.content.track.updatesStoppedNote],
+      ];
+      for (const [section, key, oldText, newText] of REWORDED) {
+        if (data.content?.[section]?.[key] === oldText) {
+          data.content[section][key] = newText;
+          dirty = true;
+        }
+      }
+
       if (dirty) {
         await client.query('UPDATE app_settings SET data = $1, updated_at = now() WHERE id = 1',
           [JSON.stringify(data)]);
