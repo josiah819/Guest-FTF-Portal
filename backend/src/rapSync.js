@@ -303,6 +303,24 @@ async function sync() {
       await pool.query(`UPDATE rap_tickets SET last_seen_at = now() WHERE id = ANY($1)`, [seenIds]);
     }
 
+    // Deletion pass: RAP is the system of record, so a ticket absent from a
+    // complete export was deleted on the board — drop its cache row now, which
+    // removes it from the inbox, dashboard and metrics in the same tick (the
+    // guest tracking page falls back to "received"). Two guards: a truncated
+    // export (over TICKETS_MAX) proves nothing about what it omitted, and an
+    // entry whose id we can read but whose shape we can't parse still counts
+    // as present — a field rename must never mass-delete the cache.
+    if (list.length <= TICKETS_MAX) {
+      const presentIds = new Set(seenIds);
+      for (const rawTicket of list) {
+        const id = asInt(pick(rawTicket, 'id', 'ticket_id', 'ticket', 'number'));
+        if (id != null) presentIds.add(id);
+      }
+      const { rowCount: pruned } = await pool.query(
+        `DELETE FROM rap_tickets WHERE id <> ALL($1::bigint[])`, [[...presentIds]]);
+      if (pruned) console.log(`[rap-sync] pruned ${pruned} ticket(s) deleted on the RAP board`);
+    }
+
     state.lastSyncAt = new Date();
     state.lastError = failedCount ? `${failedCount} ticket(s) failed to cache — see backend logs` : '';
     state.lastChangedCount = changedCount;

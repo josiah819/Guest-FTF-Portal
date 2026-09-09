@@ -165,6 +165,9 @@ caches **every ticket on the board verbatim** in `rap_tickets`:
   inbox drawer as 🔁 entries.
 - **Read-only inbox** — ticket work (status, routing, notes) happens on the RAP
   board, one click away from every row; changes sync back within a minute.
+- **Deletions follow the board** — a ticket deleted on RAP disappears from the
+  inbox, dashboard and metrics on the next sync tick; its tracking page (if it
+  was submitted here) falls back to “received”.
 
 The sync reuses `RAP_INGEST_KEY`; if the RAP operator issues a separate read key, set
 `RAP_EXPORT_KEY`. If the key isn't authorized for the export API the sync halts and
