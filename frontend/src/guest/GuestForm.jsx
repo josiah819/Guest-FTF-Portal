@@ -474,7 +474,7 @@ export default function GuestForm() {
         <span className="guest-foot__links">
           {config.features.tracking && !success && <Link to="/track">{ct.trackLinkLabel || 'My submissions →'}</Link>}
           <Link to="/privacy">{ct.privacyLinkLabel || 'Privacy'}</Link>
-          <Link to="/admin" className="guest-foot__signin">Staff sign in</Link>
+          <Link to="/admin" className="guest-foot__signin">Sign in</Link>
         </span>
       </footer>
     </div>
