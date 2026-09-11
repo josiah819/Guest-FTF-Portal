@@ -7,7 +7,7 @@ const EVENT_DEFS = [
   { key: 'newTicket', label: 'New ticket on the board',
     desc: 'A guest note (or anything else) landed on the RAP board as a fresh ticket.' },
   { key: 'resolved', label: 'Ticket resolved',
-    desc: 'The board marked a ticket resolved or closed.' },
+    desc: 'The board marked a ticket resolved.' },
   { key: 'statusChanged', label: 'Other status moves',
     desc: 'Picked up, in progress, reopened — any move that isn’t a resolution.' },
   { key: 'guestNote', label: 'Note posted for a guest',

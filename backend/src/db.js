@@ -168,7 +168,7 @@ const DEFAULT_SETTINGS = {
         compliment: '💚 Shout-out',
       },
       urgencies: { low: 'Whenever', normal: 'Normal', high: 'Today please', safety: '🚨 Safety' },
-      statuses: { new: 'Received', in_progress: 'In progress', resolved: 'Resolved', closed: 'Closed' },
+      statuses: { open: 'Received', in_progress: 'In progress', resolved: 'Resolved' },
     },
     branding: {
       logoLight: '',   // shown on dark headers (guest pages); '' = bundled /brand/mw-logo-white.png
@@ -295,6 +295,17 @@ async function migrateAndSeed() {
           data.content[section][key] = newText;
           dirty = true;
         }
+      }
+      // The board's status set is exactly open / in_progress / resolved. Guest
+      // status labels were keyed by the pre-RAP set — move "new" onto "open"
+      // (keeping any admin-edited text) and retire "closed".
+      const stLabels = data.content?.labels?.statuses;
+      if (stLabels && ('new' in stLabels || 'closed' in stLabels)) {
+        if (!stLabels.open) stLabels.open = stLabels.new || DEFAULT_SETTINGS.content.labels.statuses.open;
+        delete stLabels.new;
+        delete stLabels.closed;
+        dirty = true;
+        console.log('[migrate] status labels rekeyed to the board set (open / in_progress / resolved)');
       }
 
       if (dirty) {

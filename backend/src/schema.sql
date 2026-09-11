@@ -311,7 +311,7 @@ CREATE INDEX IF NOT EXISTS idx_rap_queue_ticket ON rap_queue (rap_ticket_id) WHE
 -- back response/resolution metrics even when the export carries no timestamps.
 CREATE TABLE IF NOT EXISTS rap_tickets (
   id                   BIGINT PRIMARY KEY,             -- RAP's ticket id
-  status               TEXT NOT NULL DEFAULT '',       -- RAP's own value: open | in_progress | resolved | …
+  status               TEXT NOT NULL DEFAULT '',       -- RAP's own value: open | in_progress | resolved
   department           TEXT NOT NULL DEFAULT '',       -- RAP's own labels, verbatim
   category             TEXT NOT NULL DEFAULT '',
   severity             INTEGER,                        -- 1..5 per RAP's triage
@@ -326,7 +326,7 @@ CREATE TABLE IF NOT EXISTS rap_tickets (
   rap_updated_at       TIMESTAMPTZ,
   rap_resolved_at      TIMESTAMPTZ,
   observed_response_at TIMESTAMPTZ,                    -- first sync where status ≠ open
-  observed_resolved_at TIMESTAMPTZ,                    -- first sync where status = resolved/closed
+  observed_resolved_at TIMESTAMPTZ,                    -- first sync where status = resolved
   first_seen_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
   last_seen_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
   synced_at            TIMESTAMPTZ NOT NULL DEFAULT now()
@@ -347,7 +347,7 @@ CREATE INDEX IF NOT EXISTS idx_rap_tickets_created ON rap_tickets (rap_created_a
 CREATE TABLE IF NOT EXISTS rap_mirror (
   submission_id  INTEGER PRIMARY KEY REFERENCES submissions(id) ON DELETE CASCADE,
   rap_ticket_id  BIGINT NOT NULL UNIQUE,
-  status         TEXT NOT NULL DEFAULT '',     -- RAP's own value: open | in_progress | resolved | …
+  status         TEXT NOT NULL DEFAULT '',     -- RAP's own value: open | in_progress | resolved
   department     TEXT NOT NULL DEFAULT '',     -- RAP's own labels, verbatim
   category       TEXT NOT NULL DEFAULT '',
   severity       INTEGER,                      -- 1..5 per RAP's triage

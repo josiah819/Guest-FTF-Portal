@@ -15,7 +15,7 @@ const DEFAULT_PUSH_PREFS = {
   events: {
     newTicket: true,       // a ticket appeared on the board
     statusChanged: false,  // moved to any non-resolved status
-    resolved: true,        // resolved / closed
+    resolved: true,        // the board resolved it
     guestNote: true,       // a note to the guest was posted
     severity: true,        // severity changed
     deleted: false,        // removed from the board

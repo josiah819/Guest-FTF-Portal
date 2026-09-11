@@ -9,7 +9,7 @@ import { useActor } from './AdminApp';
 // categories, departments and severities exactly as RAP grades them, plus the
 // guest-surface extras only WoodsVoice knows (visits, CSAT ratings).
 
-const STATUS_LABELS = { open: 'New', in_progress: 'In progress', resolved: 'Resolved', closed: 'Closed' };
+const STATUS_LABELS = { open: 'Open', in_progress: 'In progress', resolved: 'Resolved' };
 const SEVERITY_LABELS = { 1: 'Sev 1 · minor', 2: 'Sev 2', 3: 'Sev 3', 4: 'Sev 4 · high', 5: 'Sev 5 · urgent' };
 const MOOD_LABELS = { 1: '😊 Delighted', 2: '🙂 Content', 3: '😐 Neutral', 4: '😠 Upset', 5: '😡 Extremely upset' };
 const VISIT_SOURCE_LABELS = { qr: '📱 QR scan', kiosk: '🖥️ Kiosk', web: '🌐 Direct / typed link' };

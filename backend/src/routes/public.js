@@ -189,9 +189,9 @@ router.get('/track/:code', aw(async (req, res) => {
   const r = rows[0];
   if (r.rap_deleted_at) return res.status(410).json({ ...GONE, public_code: r.public_code });
 
-  // Guest-facing status: RAP's own value, with "open" wearing the "new" label
-  // (and a note not yet on the board reads as received too).
-  const status = r.rap_status === 'open' ? 'new' : (r.rap_status || 'new');
+  // Guest-facing status: RAP's own value; a note not yet on the board reads
+  // as open ("Received" by default) too.
+  const status = r.rap_status || 'open';
 
   // The public timeline, synthesized from capture + board state — RAP's
   // internal history (staff notes, routing debates) is never shown to guests.
@@ -203,7 +203,7 @@ router.get('/track/:code', aw(async (req, res) => {
       created_at: r.observed_response_at || r.created_at,
     });
   }
-  if (r.rap_status === 'resolved' || r.rap_status === 'closed') {
+  if (r.rap_status === 'resolved') {
     events.push({
       kind: 'status',
       detail: `Status changed to ${guestStatusLabel(settings, r.rap_status)}`,
@@ -274,12 +274,12 @@ router.post('/track/:code/rating', aw(async (req, res) => {
   if (!(stars >= 1 && stars <= 5)) return res.status(400).json({ error: 'Rating must be 1–5 stars.' });
   const comment = clampStr(req.body.comment, 1000);
 
-  // Ratings open once RAP's board has the ticket resolved or closed.
+  // Ratings open once RAP's board has the ticket resolved.
   const { rows } = await pool.query(
     `UPDATE rap_queue q SET rating = $1, rating_comment = $2
        FROM rap_tickets t
       WHERE q.public_code = $3 AND t.id = q.rap_ticket_id AND q.rap_deleted_at IS NULL
-        AND t.status IN ('resolved','closed')
+        AND t.status = 'resolved'
       RETURNING q.id`,
     [stars, comment, code]);
   if (!rows.length) {

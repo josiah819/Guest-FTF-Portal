@@ -8,10 +8,9 @@ import UpdatesSignup from './UpdatesSignup';
 
 // Status label text comes from admin-editable content; the colours stay ours.
 const STATUS_STYLE = {
-  new: { bg: 'var(--forest-mist)', fg: 'var(--forest)' },
+  open: { bg: 'var(--forest-mist)', fg: 'var(--forest)' },
   in_progress: { bg: '#F6E8D8', fg: '#8A4A16' },
   resolved: { bg: '#E4F0CD', fg: 'var(--green-dark)' },
-  closed: { bg: '#E8E5DC', fg: 'var(--ink-faint)' },
 };
 
 const fmtWhen = (iso) =>
@@ -135,9 +134,9 @@ export default function Track() {
   const branding = config?.content?.branding || {};
   const orgName = config?.general?.orgName || 'Muskoka Woods';
 
-  const st = data ? (STATUS_STYLE[data.status] || STATUS_STYLE.new) : null;
+  const st = data ? (STATUS_STYLE[data.status] || STATUS_STYLE.open) : null;
   const stLabel = data ? (statusLabels[data.status] || data.status) : '';
-  const canRate = data && data.csat && ['resolved', 'closed'].includes(data.status);
+  const canRate = data && data.csat && data.status === 'resolved';
 
   return (
     <div className="guest-shell">
@@ -271,7 +270,7 @@ export default function Track() {
           {list && list.length > 0 && (
             <div className="track-list">
               {list.map(s => {
-                const style = s.live ? (STATUS_STYLE[s.status] || STATUS_STYLE.new) : { bg: '#E8E5DC', fg: 'var(--ink-faint)' };
+                const style = s.live ? (STATUS_STYLE[s.status] || STATUS_STYLE.open) : { bg: '#E8E5DC', fg: 'var(--ink-faint)' };
                 const label = s.live ? (statusLabels[s.status] || s.status) : 'Saved';
                 return (
                   <Link key={s.code} to={`/t/${s.code}`} className="track-item">

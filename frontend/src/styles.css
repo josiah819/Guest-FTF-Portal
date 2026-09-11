@@ -803,10 +803,9 @@ textarea.input { min-height: 110px; resize: vertical; }
   padding: 4px 10px;
   white-space: nowrap;
 }
-.badge.s-new { background: var(--teal-mist); color: var(--teal-dark); }
+.badge.s-open { background: var(--teal-mist); color: var(--teal-dark); }
 .badge.s-in_progress { background: #F6E8D8; color: #8A4A16; }
 .badge.s-resolved { background: #E4F0CD; color: var(--green-dark); }
-.badge.s-closed { background: #E8E5DC; color: var(--ink-faint); }
 .badge.u-low { background: #EDEBE3; color: var(--ink-faint); }
 .badge.u-normal { background: var(--teal-mist); color: var(--teal-dark); }
 .badge.u-high { background: #F6E8D8; color: #8A4A16; }
@@ -1928,8 +1927,6 @@ textarea.input { min-height: 110px; resize: vertical; }
 .rp-chip.st-prog .rp-dot { background: #4A3AA7; }
 .rp-chip.st-done { background: #E2F2E2; color: #006300; }
 .rp-chip.st-done .rp-dot { background: #0CA30C; }
-.rp-chip.st-closed { background: var(--rp-plane); color: var(--rp-ink2); }
-.rp-chip.st-closed .rp-dot { background: var(--rp-dept-none); }
 .rp-chip.u-safety { background: #FAD9D3; color: var(--rp-late); text-transform: uppercase; letter-spacing: 0.05em; }
 .rp-chip.u-high { background: #FDEEDD; color: var(--rp-warn); text-transform: uppercase; letter-spacing: 0.05em; }
 

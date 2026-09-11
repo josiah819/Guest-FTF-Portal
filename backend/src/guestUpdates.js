@@ -20,8 +20,8 @@ const { notify, smtpEnabled } = require('./notify');
 const { guestUpdateEmailHtml } = require('./emails');
 const { publicOrigin } = require('./util');
 
-// Which RAP status transitions email the guest. 'open' (reopen) and 'closed'
-// (administrative, possibly spam-binning) stay silent on purpose.
+// Which RAP status transitions email the guest. 'open' (reopen) stays silent
+// on purpose.
 const STATUS_TEMPLATE = { in_progress: 'inProgress', resolved: 'resolved' };
 
 const EMAIL_KINDS = ['signup', 'inProgress', 'resolved'];
@@ -34,12 +34,9 @@ function fill(tpl, vars) {
   return String(tpl || '').replace(/\{(name|code|location|orgName|status)\}/g, (_, k) => vars[k] ?? '');
 }
 
-// The guest-facing status labels are keyed by the pre-RAP status set; RAP's
-// "open" wears the "new" label so Settings → Content keeps working unchanged.
 function guestStatusLabel(settings, status) {
   const labels = settings.content.labels?.statuses || {};
-  const key = status === 'open' ? 'new' : status;
-  return labels[key] || status;
+  return labels[status] || status;
 }
 
 // sub: { public_code, guest_name, status, location }. Returns { subject, text, html }.

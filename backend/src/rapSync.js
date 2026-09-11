@@ -50,8 +50,8 @@ const TEXT_MAX = 8000;
 
 // RAP statuses that mean "someone has acted" / "it's done", for the observed_*
 // stamps and guest emails. Everything else is treated as still-open.
-const RESPONDED = (s) => s && s !== 'open' && s !== 'new';
-const RESOLVED = (s) => s === 'resolved' || s === 'closed';
+const RESPONDED = (s) => s && s !== 'open';
+const RESOLVED = (s) => s === 'resolved';
 
 let running = false;
 let haltedReason = '';

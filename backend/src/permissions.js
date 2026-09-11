@@ -9,9 +9,9 @@ const PERMISSIONS = [
   { key: 'submissions.view_dept', group: 'Submissions', label: 'View own departments',
     desc: 'See submissions routed to the departments this user belongs to.' },
   { key: 'submissions.respond',   group: 'Submissions', label: 'Respond',
-    desc: 'Add internal notes and move items between New and In progress.' },
-  { key: 'submissions.close',     group: 'Submissions', label: 'Resolve & close',
-    desc: 'Mark items resolved or closed, and reopen them.' },
+    desc: 'Add internal notes and move items between Open and In progress.' },
+  { key: 'submissions.close',     group: 'Submissions', label: 'Resolve & reopen',
+    desc: 'Mark items resolved, and reopen them.' },
   { key: 'submissions.assign',    group: 'Submissions', label: 'Re-route & assign',
     desc: 'Change an item’s department, category, urgency, or assigned person.' },
 
