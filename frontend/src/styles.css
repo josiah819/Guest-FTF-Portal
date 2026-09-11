@@ -1279,6 +1279,18 @@ textarea.input { min-height: 110px; resize: vertical; }
   .admin-nav__aux { display: none; }
 
   .admin-main { padding: 16px 14px calc(86px + env(safe-area-inset-bottom)); }
+
+  /* Sideways page overflow widens the mobile layout viewport, which unpins
+     the fixed tab bar — clip the shell, and let anything wider than a phone
+     (the Letter-size sign previews) pan inside its own wrapper instead. */
+  .admin-shell { overflow-x: clip; }
+  .sign-wrap {
+    max-width: 100%;
+    align-items: flex-start;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
   .admin-head h1 { font-size: 34px; }
   .admin-head { margin-bottom: 16px; }
   .kv { grid-template-columns: 100px 1fr; }
