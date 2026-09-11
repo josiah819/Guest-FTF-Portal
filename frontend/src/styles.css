@@ -1371,6 +1371,8 @@ textarea.input { min-height: 110px; resize: vertical; }
 .contact-clear:hover { color: var(--red); }
 
 .guest-foot__links { display: flex; gap: 16px; }
+.guest-foot__signin { opacity: 0.6; }
+.guest-foot__signin:hover { opacity: 1; }
 
 /* privacy pages */
 .policy { font-size: 15px; }
