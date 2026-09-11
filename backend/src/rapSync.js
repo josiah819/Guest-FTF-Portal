@@ -28,6 +28,8 @@
 
 const { pool, getSettings } = require('./db');
 const { notifyGuestStatus } = require('./guestUpdates');
+const { notifyTicketPush } = require('./webPush');
+const liveBus = require('./liveBus');
 
 const INGEST_URL = process.env.RAP_INGEST_URL || 'https://rap.mwprogram.com/api/ingest';
 const EXPORT_URL = process.env.RAP_EXPORT_URL ||
@@ -37,7 +39,7 @@ const BOARD_BASE = (() => {
   try { return new URL(EXPORT_URL).origin; } catch { return ''; }
 })();
 
-const TICK_MS = 60 * 1000;
+const TICK_MS = 15 * 1000;   // ETag makes an unchanged board a near-free 304 per tick
 const KICK_DELAY_MS = 2 * 1000;   // debounce for kickSync (post-delivery nudge)
 const RATE_LIMIT_PAUSE_MS = 65 * 1000;
 const HISTORY_PARSE_MAX = 200;    // history/guest-note entries examined per ticket
@@ -283,7 +285,11 @@ async function sync() {
 
     const seenIds = [];
     const transitions = [];   // {ticketId, status} where status actually moved
-    let changedCount = 0, failedCount = 0;
+    const pushEvents = [];    // staff browser-push events, consumed by webPush.js
+    // An empty cache means a fresh install or a rebuilt cache — every board row
+    // would read as "new", so that first fill must never notify anyone.
+    const coldCache = prevRows.length === 0;
+    let changedCount = 0, failedCount = 0, prunedCount = 0;
     const appliedIds = new Set();   // duplicate ids in one export: first wins
     for (const t of tickets) {
       if (appliedIds.has(t.id)) continue;
@@ -293,6 +299,17 @@ async function sync() {
       try {
         if (await upsertTicket(t, prev)) changedCount++;
         if (prev && prev.status !== t.status) transitions.push({ ticketId: t.id, status: t.status });
+        if (!prev) {
+          pushEvents.push({ type: 'newTicket', t });
+        } else {
+          if (prev.status !== t.status) {
+            pushEvents.push({ type: RESOLVED(t.status) ? 'resolved' : 'statusChanged', t });
+          }
+          if (t.guestNotes.length > prev.guest_notes_count) pushEvents.push({ type: 'guestNote', t });
+          if (t.severity != null && prev.severity !== t.severity) {
+            pushEvents.push({ type: 'severity', t, prevSeverity: prev.severity });
+          }
+        }
       } catch (err) {
         failedCount++;
         console.error(`[rap-sync] failed to cache ticket #${t.id}: ${err.message}`);
@@ -316,9 +333,12 @@ async function sync() {
         const id = asInt(pick(rawTicket, 'id', 'ticket_id', 'ticket', 'number'));
         if (id != null) presentIds.add(id);
       }
-      const { rowCount: pruned } = await pool.query(
-        `DELETE FROM rap_tickets WHERE id <> ALL($1::bigint[])`, [[...presentIds]]);
-      if (pruned) console.log(`[rap-sync] pruned ${pruned} ticket(s) deleted on the RAP board`);
+      const { rows: prunedRows } = await pool.query(
+        `DELETE FROM rap_tickets WHERE id <> ALL($1::bigint[])
+         RETURNING id, department, building, summary, text`, [[...presentIds]]);
+      prunedCount = prunedRows.length;
+      for (const r of prunedRows) pushEvents.push({ type: 'deleted', t: r });
+      if (prunedCount) console.log(`[rap-sync] pruned ${prunedCount} ticket(s) deleted on the RAP board`);
 
       // The capture row outlives the ticket (it's the ledger), so stamp it:
       // the guest's tracking link, old emails and the device list all read
@@ -349,6 +369,11 @@ async function sync() {
     for (const tr of transitions) {
       notifyGuestStatus(tr.ticketId, tr.status);
     }
+
+    // Staff-side fan-out, both fire-and-forget: browser pushes per user prefs,
+    // and an SSE ping so open admin pages refetch now instead of in ≤30s.
+    if (!coldCache && pushEvents.length) notifyTicketPush(pushEvents);
+    if (changedCount || prunedCount) liveBus.broadcast({ type: 'board' });
   } catch (err) {
     state.lastError = err.message;
     console.error('[rap-sync] sync failed:', err.message);
@@ -369,7 +394,7 @@ function startRapSync() {
   const timer = setInterval(sync, TICK_MS);
   if (timer.unref) timer.unref();
   console.log(syncConfigured()
-    ? `[rap-sync] running (60s tick ← ${EXPORT_URL})`
+    ? `[rap-sync] running (${TICK_MS / 1000}s tick ← ${EXPORT_URL})`
     : '[rap-sync] no key configured — sync idle until RAP_EXPORT_KEY/RAP_INGEST_KEY is set');
 }
 

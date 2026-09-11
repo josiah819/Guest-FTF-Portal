@@ -231,6 +231,20 @@ export default function Submissions() {
     api.submissionStats().then(setStats).catch(() => {});
   }, []);
 
+  // Deep link from a push notification: ?open=<id> opens the ticket drawer,
+  // then drops the param so a refresh doesn't re-open it. Runs on every param
+  // change — a notification click may navigate an already-open inbox tab.
+  useEffect(() => {
+    const open = parseInt(searchParams.get('open'), 10);
+    if (open) {
+      setOpenId(open);
+      const next = new URLSearchParams(searchParams);
+      next.delete('open');
+      setSearchParams(next, { replace: true });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams]);
+
   const load = useCallback(() => {
     api.submissions({ ...filters, page })
       .then(d => { setRows(d.rows); setTotal(d.total); })

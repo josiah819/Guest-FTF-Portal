@@ -12,6 +12,11 @@ const { dashboardMetrics, insightsInput } = require('../metrics');
 const { generateInsights, aiEnabled } = require('../classify');
 const { rapStatus } = require('../rap');
 const { rapSyncStatus, probeSync } = require('../rapSync');
+const { matchDeptLabels } = require('../deptScope');
+const liveBus = require('../liveBus');
+const { pushConfigured, getVapidPublicKey, getPushPrefs, savePushPrefs,
+        addSubscription, removeSubscription, listSubscriptions,
+        sendTestNotification } = require('../webPush');
 
 const router = express.Router();
 
@@ -99,6 +104,60 @@ router.post('/emails/preview', requirePerm('content.manage'), aw(async (req, res
   res.json(renderGuestEmail(kind, sample, settings, publicOrigin(req)));
 }));
 
+// ---------- push notifications (self-scoped: each user manages their own) ----------
+
+router.get('/push/config', (req, res) => {
+  res.json({ configured: pushConfigured(), publicKey: getVapidPublicKey() });
+});
+
+router.get('/push/prefs', aw(async (req, res) => {
+  const [prefs, subs] = await Promise.all([
+    getPushPrefs(req.actor.id), listSubscriptions(req.actor.id)]);
+  res.json({
+    prefs,
+    subscriptions: subs.map(s => ({
+      id: s.id, endpoint: s.endpoint, uaLabel: s.ua_label,
+      createdAt: s.created_at, lastUsedAt: s.last_used_at,
+    })),
+  });
+}));
+
+router.put('/push/prefs', aw(async (req, res) => {
+  res.json({ prefs: await savePushPrefs(req.actor.id, req.body.prefs) });
+}));
+
+router.post('/push/subscriptions', aw(async (req, res) => {
+  await addSubscription(req.actor.id, req.body.subscription, req.body.label);
+  res.status(201).json({ ok: true });
+}));
+
+// Endpoint travels in the body, not the URL: push endpoints are long
+// capability URLs and must never land in access logs.
+router.delete('/push/subscriptions', aw(async (req, res) => {
+  await removeSubscription(req.actor.id, req.body.endpoint);
+  res.json({ ok: true });
+}));
+
+router.post('/push/test', aw(async (req, res) => {
+  if (!pushConfigured()) return res.status(400).json({ error: 'Push isn’t configured on the server.' });
+  res.json(await sendTestNotification(req.actor.id));
+}));
+
+// ---------- live updates (SSE) ----------
+
+// A tiny "the board changed" ping stream; pages refetch their own endpoints on
+// it, so permissions stay where they already are. The JWT is checked at
+// connect; the pings themselves carry no data.
+router.get('/events', (req, res) => {
+  res.writeHead(200, {
+    'Content-Type': 'text/event-stream',
+    'Cache-Control': 'no-cache',
+    'X-Accel-Buffering': 'no',   // per-response nginx unbuffering — no nginx.conf change needed
+  });
+  res.write(`data: ${JSON.stringify({ type: 'hello' })}\n\n`);
+  liveBus.attach(res);
+});
+
 // ---------- branding ----------
 
 const UPLOAD_DIR = process.env.UPLOAD_DIR || '/data/uploads';
@@ -127,13 +186,9 @@ router.post('/branding/logo', requirePerm('content.manage'), logoUpload.single('
 
 const VIEW_SUBMISSIONS = ['submissions.view_all', 'submissions.view_dept'];
 
-// RAP department word → word to look for in our department names
-// (their "Kitchen" is our "Food Services").
-const DEPT_ALIASES = { kitchen: 'food' };
-
 // Department-scoped staff see the tickets whose RAP department label matches
-// one of their local departments (whole-word matching — a short label like
-// "it" must not claim "Facil-it-ies"). Returns null = unscoped, [] = nothing.
+// one of their local departments (matching lives in deptScope.js, shared with
+// the push fan-out). Returns null = unscoped, [] = nothing.
 async function rapDeptScope(actor) {
   if (actor.perms.has('submissions.view_all')) return null;
   const deptIds = actor.deptIds || [];
@@ -142,13 +197,7 @@ async function rapDeptScope(actor) {
     'SELECT name FROM departments WHERE id = ANY($1)', [deptIds]);
   const { rows: labels } = await pool.query(
     `SELECT DISTINCT department FROM rap_tickets WHERE department <> ''`);
-  const tokenSets = depts.map(d => d.name.toLowerCase().split(/[^a-z0-9]+/).filter(Boolean));
-  return labels.map(r => r.department).filter(label => {
-    const wants = label.toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
-    const aliases = wants.map(w => Object.hasOwn(DEPT_ALIASES, w) ? DEPT_ALIASES[w] : null).filter(Boolean);
-    return tokenSets.some(tokens =>
-      wants.every(w => tokens.includes(w)) || aliases.some(a => tokens.includes(a)));
-  });
+  return matchDeptLabels(depts.map(d => d.name), labels.map(r => r.department));
 }
 
 // Shared projection + join for list/detail.

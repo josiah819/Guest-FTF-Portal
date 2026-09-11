@@ -3,6 +3,7 @@ import { api } from '../api';
 import useSoftReload from '../useSoftReload';
 import { useActor } from './AdminApp';
 import ContentTab from './ContentTab';
+import NotificationsTab from './NotificationsTab';
 
 const FIELD_DEFS = [
   { key: 'location', label: 'Location', hint: 'Pre-filled automatically when guests arrive via a location QR code; the picker only shows without one.' },
@@ -160,6 +161,7 @@ const TAB_DEFS = [
   { id: 'Content', perm: 'content.manage' },
   { id: 'Categories', perm: 'catalogs.manage' },
   { id: 'Departments', perm: 'catalogs.manage' },
+  { id: 'Notifications', perm: null },   // per-user, like Account — everyone gets it
   { id: 'Account', perm: null },
 ];
 
@@ -448,6 +450,8 @@ export default function Settings() {
 
       {tab === 'Categories' && <CatalogEditor table="categories" departments={departments} />}
       {tab === 'Departments' && <CatalogEditor table="departments" departments={departments} />}
+
+      {tab === 'Notifications' && <NotificationsTab setToast={setToast} />}
 
       {tab === 'Account' && <Account />}
 

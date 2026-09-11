@@ -78,6 +78,16 @@ export const api = {
   saveSettings: (patch) => request('/api/admin/settings', { method: 'PUT', body: patch, auth: true }),
   rapStatus: () => request('/api/admin/rap/status', { auth: true }),
   rapSyncTest: () => request('/api/admin/rap/sync/test', { method: 'POST', auth: true }),
+  pushConfig: () => request('/api/admin/push/config', { auth: true }),
+  pushPrefs: () => request('/api/admin/push/prefs', { auth: true }),
+  savePushPrefs: (prefs) => request('/api/admin/push/prefs', { method: 'PUT', body: { prefs }, auth: true }),
+  pushSubscribe: (subscription, label) =>
+    request('/api/admin/push/subscriptions', { method: 'POST', body: { subscription, label }, auth: true }),
+  // Endpoint goes in the body — push endpoints are capability URLs that must
+  // stay out of access logs.
+  pushUnsubscribe: (endpoint) =>
+    request('/api/admin/push/subscriptions', { method: 'DELETE', body: { endpoint }, auth: true }),
+  pushTest: () => request('/api/admin/push/test', { method: 'POST', auth: true }),
   uploadLogo: (slot, file) => {
     const fd = new FormData();
     fd.append('slot', slot);

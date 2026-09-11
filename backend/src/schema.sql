@@ -359,3 +359,39 @@ CREATE TABLE IF NOT EXISTS rap_mirror (
   rap_updated_at TIMESTAMPTZ,
   synced_at      TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+-- Browser push (webPush.js). The VAPID keypair is generated once on first boot
+-- and kept here so subscriptions survive rebuilds; VAPID_PUBLIC_KEY/
+-- VAPID_PRIVATE_KEY env vars override it. Rotating the pair silently
+-- invalidates every subscription — never regenerate while a row exists.
+CREATE TABLE IF NOT EXISTS push_vapid (
+  id          INTEGER PRIMARY KEY CHECK (id = 1),
+  public_key  TEXT NOT NULL,
+  private_key TEXT NOT NULL,
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- Per-user notification preferences: one JSONB blob deep-merged over code
+-- defaults (DEFAULT_PUSH_PREFS), the same contract app_settings uses. Users
+-- are hard-deleted, so prefs and subscriptions cascade away with them.
+CREATE TABLE IF NOT EXISTS user_notification_prefs (
+  user_id    INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+  push       JSONB NOT NULL DEFAULT '{}',
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- One row per subscribed device/browser. endpoint is globally unique: a shared
+-- kiosk browser re-enabled under another account takes the row over instead of
+-- double-notifying. Rows the push service reports gone (404/410) are pruned.
+CREATE TABLE IF NOT EXISTS push_subscriptions (
+  id           SERIAL PRIMARY KEY,
+  user_id      INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  endpoint     TEXT NOT NULL UNIQUE,
+  p256dh       TEXT NOT NULL,
+  auth         TEXT NOT NULL,
+  ua_label     TEXT NOT NULL DEFAULT '',      -- "Chrome on Windows", for the device list
+  created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+  last_used_at TIMESTAMPTZ,
+  last_error   TEXT NOT NULL DEFAULT ''
+);
+CREATE INDEX IF NOT EXISTS idx_push_subs_user ON push_subscriptions (user_id);

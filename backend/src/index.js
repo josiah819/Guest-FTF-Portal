@@ -3,6 +3,7 @@ const fs = require('fs');
 const { migrateAndSeed, pool } = require('./db');
 const { startRapSender } = require('./rap');
 const { startRapSync } = require('./rapSync');
+const { initWebPush } = require('./webPush');
 
 const app = express();
 app.set('trust proxy', true);
@@ -51,6 +52,7 @@ async function start() {
       await new Promise(r => setTimeout(r, 2000));
     }
   }
+  await initWebPush();
   startRapSender();
   startRapSync();
   app.listen(PORT, () => console.log(`[boot] WoodsVoice API listening on :${PORT}`));
