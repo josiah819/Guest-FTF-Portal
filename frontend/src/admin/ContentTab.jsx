@@ -266,6 +266,9 @@ export default function ContentTab({ s, patch, patchPath, applySettings, setToas
           <TextRow label="Email-updates-on note" value={track.updatesOnNote} onChange={setTrack('updatesOnNote')} />
           <TextRow label="Stop-updates button" value={track.updatesStopLabel} onChange={setTrack('updatesStopLabel')} />
           <TextRow label="Updates-stopped note" value={track.updatesStoppedNote} onChange={setTrack('updatesStoppedNote')} />
+          <TextRow label="Removed: kicker" value={track.goneKicker} onChange={setTrack('goneKicker')} />
+          <TextRow label="Removed: title" value={track.goneTitle} onChange={setTrack('goneTitle')} />
+          <TextRow label="Removed: note" value={track.goneNote} onChange={setTrack('goneNote')} />
         </div>
       </Section>
 

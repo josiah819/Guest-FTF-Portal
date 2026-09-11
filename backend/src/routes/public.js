@@ -160,6 +160,13 @@ router.post('/submissions', rateLimit({ windowMs: 5 * 60 * 1000, max: 12 }), upl
   });
 }));
 
+// A submission whose ticket was deleted on the RAP board answers 410 on every
+// tracking endpoint: the capture row still exists (it's the ledger), but the
+// guest must see a clean "no longer available" instead of a frozen "received".
+// Old emails and the device list land here too, so the page — not the API
+// caller — decides what to show; the device list drops the code on 404/410.
+const GONE = { error: 'This submission is no longer available.', gone: true };
+
 router.get('/track/:code', aw(async (req, res) => {
   const settings = await getSettings();
   // 403, not 404 — the device list prunes codes on 404, and a temporarily
@@ -168,7 +175,7 @@ router.get('/track/:code', aw(async (req, res) => {
   const code = clampStr(req.params.code, 20).toUpperCase();
   const { rows } = await pool.query(
     `SELECT q.public_code, q.created_at, q.rating, q.location_name AS location,
-            q.status AS delivery_status, q.rap_ticket_id,
+            q.status AS delivery_status, q.rap_ticket_id, q.rap_deleted_at,
             (q.updates_email <> '') AS updates_on,
             LEFT(q.payload->>'text', 200) AS message,
             coalesce(q.payload->>'guest_type', '') AS type,
@@ -180,6 +187,7 @@ router.get('/track/:code', aw(async (req, res) => {
       WHERE q.public_code = $1`, [code]);
   if (!rows.length) return res.status(404).json({ error: 'We couldn’t find that submission.' });
   const r = rows[0];
+  if (r.rap_deleted_at) return res.status(410).json({ ...GONE, public_code: r.public_code });
 
   // Guest-facing status: RAP's own value, with "open" wearing the "new" label
   // (and a note not yet on the board reads as received too).
@@ -237,10 +245,14 @@ router.post('/track/:code/updates', rateLimit({ windowMs: 5 * 60 * 1000, max: 10
 
   const { rows } = await pool.query(
     `UPDATE rap_queue q SET updates_email = $1
-      WHERE q.public_code = $2
+      WHERE q.public_code = $2 AND q.rap_deleted_at IS NULL
       RETURNING (SELECT t.status FROM rap_tickets t WHERE t.id = q.rap_ticket_id) AS rap_status`,
     [email, code]);
-  if (!rows.length) return res.status(404).json({ error: 'We couldn’t find that submission.' });
+  if (!rows.length) {
+    const { rows: q } = await pool.query('SELECT rap_deleted_at FROM rap_queue WHERE public_code = $1', [code]);
+    if (q.length) return res.status(410).json(GONE);
+    return res.status(404).json({ error: 'We couldn’t find that submission.' });
+  }
   await sendGuestEmail('signup', code, rows[0].rap_status || 'open', req);
   res.json({ ok: true });
 }));
@@ -266,11 +278,15 @@ router.post('/track/:code/rating', aw(async (req, res) => {
   const { rows } = await pool.query(
     `UPDATE rap_queue q SET rating = $1, rating_comment = $2
        FROM rap_tickets t
-      WHERE q.public_code = $3 AND t.id = q.rap_ticket_id
+      WHERE q.public_code = $3 AND t.id = q.rap_ticket_id AND q.rap_deleted_at IS NULL
         AND t.status IN ('resolved','closed')
       RETURNING q.id`,
     [stars, comment, code]);
-  if (!rows.length) return res.status(400).json({ error: 'Ratings open once your submission is resolved.' });
+  if (!rows.length) {
+    const { rows: q } = await pool.query('SELECT rap_deleted_at FROM rap_queue WHERE public_code = $1', [code]);
+    if (q[0]?.rap_deleted_at) return res.status(410).json(GONE);
+    return res.status(400).json({ error: 'Ratings open once your submission is resolved.' });
+  }
   res.json({ ok: true });
 }));
 

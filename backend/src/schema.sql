@@ -273,6 +273,10 @@ ALTER TABLE rap_queue ADD COLUMN IF NOT EXISTS source TEXT NOT NULL DEFAULT 'qr'
 ALTER TABLE rap_queue ADD COLUMN IF NOT EXISTS updates_email TEXT NOT NULL DEFAULT '';
 ALTER TABLE rap_queue ADD COLUMN IF NOT EXISTS rating INTEGER;
 ALTER TABLE rap_queue ADD COLUMN IF NOT EXISTS rating_comment TEXT NOT NULL DEFAULT '';
+-- Stamped by the sync when the linked ticket vanishes from a complete board
+-- export: the guest's tracking link then answers 410 with a clean message
+-- instead of pretending the note is still "received". Cleared if it reappears.
+ALTER TABLE rap_queue ADD COLUMN IF NOT EXISTS rap_deleted_at TIMESTAMPTZ;
 DO $$ BEGIN
   IF EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'rap_queue_submission_id_fkey') THEN
     ALTER TABLE rap_queue DROP CONSTRAINT rap_queue_submission_id_fkey;

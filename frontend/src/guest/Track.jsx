@@ -25,6 +25,7 @@ export default function Track() {
   const [config, setConfig] = useState(null);
   const [data, setData] = useState(null);
   const [error, setError] = useState('');
+  const [gone, setGone] = useState(false);   // 410: the ticket was deleted on the RAP board
   const [loading, setLoading] = useState(false);
   const [list, setList] = useState(null); // null = still loading
   const [stars, setStars] = useState(0);
@@ -43,9 +44,10 @@ export default function Track() {
   // Detail view. Opening a link also adopts the submission into this device's
   // list — that's how a kiosk QR scan lands the note on the guest's own phone.
   useEffect(() => {
-    if (!codeParam) { setData(null); return; }
+    if (!codeParam) { setData(null); setGone(false); return; }
     setLoading(true);
     setError('');
+    setGone(false);
     api.track(codeParam)
       .then(d => {
         setData(d);
@@ -58,15 +60,20 @@ export default function Track() {
         });
       })
       .catch(err => {
-        if (err.status === 404) forgetSubmission(codeParam.trim().toUpperCase());
+        // Gone (404 wiped / 410 deleted on the board): drop it from this
+        // device. 410 gets the clean "no longer available" card — that's where
+        // old update emails and stale bookmarks land.
+        if (err.status === 404 || err.status === 410) forgetSubmission(codeParam.trim().toUpperCase());
+        if (err.status === 410) { setGone(true); setData(null); return; }
         setError(err.message);
       })
       .finally(() => setLoading(false));
   }, [codeParam]);
 
   // List view: everything this browser has sent, freshened from the server.
-  // 404 = the submission is gone (deleted / wiped) → drop it from the device;
-  // any other failure keeps the saved entry and shows it without live status.
+  // 404 (wiped) / 410 (deleted on the board) = the submission is gone → drop
+  // it from the device; any other failure keeps the saved entry and shows it
+  // without live status.
   function loadList() {
     const mine = listMySubmissions();
     if (!mine.length) { setList([]); return; }
@@ -74,7 +81,7 @@ export default function Track() {
       api.track(s.code)
         .then(d => ({ ...s, ...d, live: true }))
         .catch(err => {
-          if (err.status === 404) { forgetSubmission(s.code); return null; }
+          if (err.status === 404 || err.status === 410) { forgetSubmission(s.code); return null; }
           return { ...s, live: false };
         })
     )).then(rows => setList(rows.filter(Boolean)));
@@ -90,7 +97,16 @@ export default function Track() {
   // in-progress rating (stars picked, comment half-typed) survives untouched.
   useSoftReload(() => {
     if (codeParam) {
-      api.track(codeParam).then(d => { setData(d); setError(''); }).catch(() => {});
+      api.track(codeParam)
+        .then(d => { setData(d); setError(''); setGone(false); })
+        .catch(err => {
+          // Deleted while the guest was watching: swap to the gone card
+          // rather than leaving a status that no longer exists on screen.
+          if (err.status === 410) {
+            forgetSubmission(codeParam.trim().toUpperCase());
+            setGone(true); setData(null); setError('');
+          }
+        });
     } else {
       loadList();
     }
@@ -131,9 +147,11 @@ export default function Track() {
       </header>
 
       <section className="guest-hero rise rise-1">
-        <div className="kicker">{ct.kicker || 'Hang tight — we’re on it'}</div>
+        <div className="kicker">{gone ? (ct.goneKicker || 'Nothing to see here') : (ct.kicker || 'Hang tight — we’re on it')}</div>
         <h1 className="display">
-          {codeParam ? (ct.title || 'Check your submission') : (ct.listTitle || 'Your submissions')}
+          {gone
+            ? (ct.goneTitle || 'This submission is no longer available')
+            : codeParam ? (ct.title || 'Check your submission') : (ct.listTitle || 'Your submissions')}
         </h1>
       </section>
 
@@ -141,6 +159,18 @@ export default function Track() {
         <main className="guest-card rise rise-2">
           {loading && <div className="center-pad"><span className="spinner" /></div>}
           {error && <div className="error-note" role="alert">{error}</div>}
+
+          {gone && !loading && (
+            <div className="track-empty" role="status">
+              <p className="muted" style={{ margin: '6px 0 18px' }}>
+                {ct.goneNote || 'Our team has removed it, so this link and any update emails about it no longer apply. If you still need a hand, send us a new note.'}
+              </p>
+              <div style={{ display: 'flex', gap: 10, justifyContent: 'center', flexWrap: 'wrap' }}>
+                <Link className="btn btn-teal btn-small" to="/">{ct.newSubmissionLabel || '← New submission'}</Link>
+                <Link className="btn btn-ghost btn-small" to="/track">{ct.backToListLabel || '← My submissions'}</Link>
+              </div>
+            </div>
+          )}
 
           {data && !loading && (
             <div>

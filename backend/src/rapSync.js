@@ -305,11 +305,11 @@ async function sync() {
 
     // Deletion pass: RAP is the system of record, so a ticket absent from a
     // complete export was deleted on the board — drop its cache row now, which
-    // removes it from the inbox, dashboard and metrics in the same tick (the
-    // guest tracking page falls back to "received"). Two guards: a truncated
-    // export (over TICKETS_MAX) proves nothing about what it omitted, and an
-    // entry whose id we can read but whose shape we can't parse still counts
-    // as present — a field rename must never mass-delete the cache.
+    // removes it from the inbox, dashboard and metrics in the same tick. Two
+    // guards: a truncated export (over TICKETS_MAX) proves nothing about what
+    // it omitted, and an entry whose id we can read but whose shape we can't
+    // parse still counts as present — a field rename must never mass-delete
+    // the cache.
     if (list.length <= TICKETS_MAX) {
       const presentIds = new Set(seenIds);
       for (const rawTicket of list) {
@@ -319,6 +319,23 @@ async function sync() {
       const { rowCount: pruned } = await pool.query(
         `DELETE FROM rap_tickets WHERE id <> ALL($1::bigint[])`, [[...presentIds]]);
       if (pruned) console.log(`[rap-sync] pruned ${pruned} ticket(s) deleted on the RAP board`);
+
+      // The capture row outlives the ticket (it's the ledger), so stamp it:
+      // the guest's tracking link, old emails and the device list all read
+      // this stamp to say "no longer available" instead of "received". A
+      // short grace after delivery covers RAP's own ingest→export lag; an
+      // absence that outlasts it is a deletion, the same rule the prune uses.
+      // Reappearance (restored on the board) clears the stamp again.
+      const { rowCount: gone } = await pool.query(
+        `UPDATE rap_queue SET rap_deleted_at = now(), updated_at = now()
+          WHERE rap_deleted_at IS NULL AND status = 'sent' AND rap_ticket_id IS NOT NULL
+            AND rap_ticket_id <> ALL($1::bigint[])
+            AND sent_at < now() - interval '2 minutes'`, [[...presentIds]]);
+      if (gone) console.log(`[rap-sync] ${gone} capture row(s) now point at deleted tickets`);
+      const { rowCount: restored } = await pool.query(
+        `UPDATE rap_queue SET rap_deleted_at = NULL, updated_at = now()
+          WHERE rap_deleted_at IS NOT NULL AND rap_ticket_id = ANY($1::bigint[])`, [[...presentIds]]);
+      if (restored) console.log(`[rap-sync] ${restored} capture row(s) re-linked to restored tickets`);
     }
 
     state.lastSyncAt = new Date();

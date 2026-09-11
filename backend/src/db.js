@@ -113,6 +113,9 @@ const DEFAULT_SETTINGS = {
       updatesOnNote: 'Email updates are on for this note.',
       updatesStopLabel: 'Stop email updates',
       updatesStoppedNote: 'Email updates are off. We won’t email you about this submission again.',
+      goneKicker: 'Nothing to see here',
+      goneTitle: 'This submission is no longer available',
+      goneNote: 'Our team has removed it, so this link and any update emails about it no longer apply. If you still need a hand, send us a new note.',
     },
     // The printable QR sheet (Locations & QR codes → Sign editor). Newlines in
     // title/subtitle are real line breaks on the sign.

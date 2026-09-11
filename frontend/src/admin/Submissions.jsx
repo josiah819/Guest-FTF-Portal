@@ -69,17 +69,44 @@ function fmtHours(v) {
   return `${Math.round(v * 10) / 10}h`;
 }
 
-function Drawer({ id, onClose, boardBase }) {
+function Drawer({ id, onClose, onGone, boardBase }) {
   const [data, setData] = useState(null);
+  const [gone, setGone] = useState(false);
+
+  // 404 = the ticket was deleted on the RAP board (the sync pruned it): say
+  // so, and let the inbox refresh so the row disappears with it. Any other
+  // failure just leaves whatever was last shown.
+  const markGone = (err) => {
+    if (err?.status !== 404) return;
+    setGone(true);
+    onGone?.();
+  };
 
   useEffect(() => {
-    api.submission(id).then(setData).catch(() => onClose());
-  }, [id, onClose]);
+    api.submission(id).then(setData).catch(markGone);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [id]);
 
-  // An open ticket keeps up with the board; failures don't close the drawer.
+  // An open ticket keeps up with the board; transient failures don't close it.
   useSoftReload(() => {
-    api.submission(id).then(setData).catch(() => {});
+    api.submission(id).then(setData).catch(markGone);
   });
+
+  if (gone) return (
+    <>
+      <div className="drawer-mask" onClick={onClose} />
+      <aside className="drawer" role="dialog" aria-label={`Ticket #${id}`}>
+        <button className="close" onClick={onClose} aria-label="Close">✕</button>
+        <div className="kicker" style={{ color: 'var(--orange)' }}>RAP #{id}</div>
+        <h2 className="display">This ticket is no longer on the RAP board</h2>
+        <p className="muted">
+          It was deleted there, so it has been removed from this inbox too. The guest’s tracking
+          link now shows a “no longer available” notice, and no further update emails will go out.
+        </p>
+        <button className="rp-btn" onClick={onClose}>Back to the inbox</button>
+      </aside>
+    </>
+  );
 
   if (!data) return (
     <>
@@ -430,7 +457,7 @@ export default function Submissions() {
 
       <p className="rp-foot">Tickets live on the RAP board — WoodsVoice adds the guest-facing capture, tracking and email layer</p>
 
-      {openId && <Drawer id={openId} onClose={() => setOpenId(null)} boardBase={boardBase} />}
+      {openId && <Drawer id={openId} onClose={() => setOpenId(null)} onGone={load} boardBase={boardBase} />}
     </div>
   );
 }
