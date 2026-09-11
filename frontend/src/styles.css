@@ -1203,6 +1203,44 @@ textarea.input { min-height: 110px; resize: vertical; }
   animation: riseIn 0.25s ease both;
 }
 
+/* Staff-side PWA install offer (components/InstallPrompt.jsx) — only shown
+   when the browser's prompt was swallowed on a guest page. */
+.pwa-install {
+  position: fixed;
+  bottom: 22px;
+  right: 22px;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  background: var(--card);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-pop);
+  padding: 14px 16px;
+  max-width: 360px;
+}
+.pwa-install__text { display: flex; flex-direction: column; gap: 2px; }
+.pwa-install__text strong { font-size: 13.5px; }
+.pwa-install__text span { font-size: 12px; color: var(--ink-faint); }
+.pwa-install__x {
+  border: 0;
+  background: none;
+  cursor: pointer;
+  color: var(--ink-faint);
+  font-size: 13px;
+  padding: 4px;
+  align-self: flex-start;
+}
+@media screen and (max-width: 860px) {
+  /* clear the fixed phone tab bar */
+  .pwa-install {
+    left: 14px;
+    right: 14px;
+    bottom: calc(74px + env(safe-area-inset-bottom));
+    max-width: none;
+  }
+}
+
 /* aux links live at the bottom of the desktop sidebar */
 .admin-nav__aux {
   margin-top: auto;
