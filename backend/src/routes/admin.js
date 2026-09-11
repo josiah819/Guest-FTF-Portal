@@ -15,7 +15,7 @@ const { rapSyncStatus, probeSync } = require('../rapSync');
 const { matchDeptLabels } = require('../deptScope');
 const liveBus = require('../liveBus');
 const { pushConfigured, getVapidPublicKey, getPushPrefs, savePushPrefs,
-        addSubscription, removeSubscription, listSubscriptions,
+        validSubscription, addSubscription, removeSubscription, listSubscriptions,
         sendTestNotification } = require('../webPush');
 
 const router = express.Router();
@@ -127,6 +127,9 @@ router.put('/push/prefs', aw(async (req, res) => {
 }));
 
 router.post('/push/subscriptions', aw(async (req, res) => {
+  if (!validSubscription(req.body.subscription)) {
+    return res.status(400).json({ error: 'That subscription doesn’t look valid — try turning notifications off and on again.' });
+  }
   await addSubscription(req.actor.id, req.body.subscription, req.body.label);
   res.status(201).json({ ok: true });
 }));

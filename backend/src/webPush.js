@@ -108,15 +108,17 @@ async function savePushPrefs(userId, patch) {
 
 // ---------- subscriptions ----------
 
-async function addSubscription(userId, sub, uaLabel) {
+// Shape check for the route's 400 — the global error handler only knows 500s.
+function validSubscription(sub) {
   const endpoint = String(sub?.endpoint || '');
-  const p256dh = String(sub?.keys?.p256dh || '');
-  const auth = String(sub?.keys?.auth || '');
-  if (!/^https:\/\//.test(endpoint) || endpoint.length > 2000 || !p256dh || !auth) {
-    const err = new Error('That subscription doesn’t look valid — try turning notifications off and on again.');
-    err.status = 400;
-    throw err;
-  }
+  return /^https:\/\//.test(endpoint) && endpoint.length <= 2000 &&
+    !!sub?.keys?.p256dh && !!sub?.keys?.auth;
+}
+
+async function addSubscription(userId, sub, uaLabel) {
+  const endpoint = String(sub.endpoint);
+  const p256dh = String(sub.keys.p256dh);
+  const auth = String(sub.keys.auth);
   await pool.query(
     `INSERT INTO push_subscriptions (user_id, endpoint, p256dh, auth, ua_label)
      VALUES ($1, $2, $3, $4, $5)
@@ -284,6 +286,6 @@ async function notifyTicketPush(events) {
 module.exports = {
   initWebPush, pushConfigured, getVapidPublicKey,
   getPushPrefs, savePushPrefs, DEFAULT_PUSH_PREFS,
-  addSubscription, removeSubscription, listSubscriptions,
+  validSubscription, addSubscription, removeSubscription, listSubscriptions,
   sendTestNotification, notifyTicketPush,
 };
