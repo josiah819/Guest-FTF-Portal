@@ -315,12 +315,17 @@ export default function GuestForm() {
             </div>
           )}
 
-          {showField('location') && locLocked && lockedLocation && (
+          {/* The field toggle governs choice, not the QR tag: with the picker
+              off, a location baked into the QR still tags the note — the guest
+              sees where it's filed but can't change it. */}
+          {locLocked && lockedLocation && (
             <div className="guest-locwrap rise rise-1">
               <div className="guest-locbadge">{lockedLocation.name}</div>
-              <button type="button" className="guest-locchange" onClick={() => setLocLocked(false)}>
-                {ct.changeLocationLabel || 'Change'}
-              </button>
+              {showField('location') && (
+                <button type="button" className="guest-locchange" onClick={() => setLocLocked(false)}>
+                  {ct.changeLocationLabel || 'Change'}
+                </button>
+              )}
             </div>
           )}
 

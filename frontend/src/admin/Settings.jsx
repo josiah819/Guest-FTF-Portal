@@ -6,7 +6,7 @@ import ContentTab from './ContentTab';
 import NotificationsTab from './NotificationsTab';
 
 const FIELD_DEFS = [
-  { key: 'location', label: 'Location', hint: 'Pre-filled automatically when guests arrive via a location QR code; the picker only shows without one.' },
+  { key: 'location', label: 'Location', hint: 'Pre-filled automatically when guests arrive via a location QR code; the picker only shows without one. Off hides the picker, but a QR-scanned location still tags the note — guests just can’t change it.' },
   { key: 'category', label: 'Category picker', hint: 'The tile grid. Leave off — the RAP board’s triage sorts every note automatically; a guest’s pick just travels along as a hint.' },
   { key: 'urgency', label: 'Urgency', hint: 'Lets guests flag “today please” or safety themselves. Their pick is passed to the RAP board’s triage.' },
   { key: 'photo', label: 'Photo upload', hint: 'A picture of the leaky tap beats three paragraphs about it.' },
