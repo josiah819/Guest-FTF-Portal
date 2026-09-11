@@ -15,12 +15,10 @@ const STATUS_CHIP = {
   resolved: { label: 'Resolved', cls: 'st-done' },
 };
 
-// The board's full status set — Open, In progress, Resolved — plus the
-// two composite views.
+// The board's full status set — Open, In progress, Resolved — plus All.
 const STATUS_SEGMENTS = [
-  { id: 'active', label: 'Active' },
   { id: 'open', label: 'Open' },
-  { id: 'in_progress', label: 'In progress', short: 'Progress' },
+  { id: 'in_progress', label: 'In progress' },
   { id: 'resolved', label: 'Resolved' },
   { id: 'all', label: 'All' },
 ];
@@ -298,7 +296,7 @@ export default function Submissions() {
   const isMobile = useIsMobile();
 
   const filters = {
-    status: searchParams.get('status') || 'active',
+    status: searchParams.get('status') || 'all',
     category: searchParams.get('category') || '',
     department: searchParams.get('department') || '',
     severity: searchParams.get('severity') || '',
@@ -447,8 +445,8 @@ export default function Submissions() {
           {STATUS_SEGMENTS.map(s => (
             <button key={s.id} type="button" className={filters.status === s.id ? 'on' : ''}
               aria-current={filters.status === s.id ? 'true' : undefined}
-              onClick={() => setFilter('status', s.id === 'active' ? '' : s.id)}>
-              {s.short ? <><span className="rp-seg-long">{s.label}</span><span className="rp-seg-short">{s.short}</span></> : s.label}
+              onClick={() => setFilter('status', s.id === 'all' ? '' : s.id)}>
+              {s.label}
             </button>
           ))}
         </nav>

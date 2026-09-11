@@ -1877,7 +1877,6 @@ textarea.input { min-height: 110px; resize: vertical; }
 }
 .rp-seg button:hover:not(.on) { background: var(--rp-fern-soft); color: var(--rp-ink); }
 .rp-seg button.on { background: var(--rp-fern-deep); color: #FFFFFF; }
-.rp-seg-short { display: none; }
 
 .rp-fselect {
   appearance: none;
@@ -2103,7 +2102,7 @@ a.rp-btn { text-decoration: none; display: inline-block; }
   .rp-filterbar--phone { flex-direction: column; align-items: stretch; gap: 10px; margin-bottom: 14px; }
   .rp-filterbar--phone .rp-seg {
     display: grid;
-    grid-template-columns: repeat(5, 1fr);
+    grid-template-columns: repeat(4, 1fr);
     width: 100%;
     gap: 2px;
   }
@@ -2114,9 +2113,6 @@ a.rp-btn { text-decoration: none; display: inline-block; }
     overflow: hidden;
     text-overflow: ellipsis;
   }
-  .rp-filterbar--phone .rp-seg-long { display: none; }
-  .rp-filterbar--phone .rp-seg-short { display: inline; }
-
   .rp-mrow { display: flex; gap: 8px; }
   .rp-msearch {
     flex: 1;
