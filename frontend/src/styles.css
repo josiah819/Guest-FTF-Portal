@@ -1781,6 +1781,18 @@ textarea.input { min-height: 110px; resize: vertical; }
   margin-top: 3px;
 }
 .rp-tile .v.hot { color: var(--rp-late); }
+/* the three status tiles are shortcuts to their tab */
+.rp-tile--go {
+  display: block;
+  width: 100%;
+  text-align: left;
+  cursor: pointer;
+  font: inherit;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease, transform 0.15s ease;
+}
+.rp-tile--go:hover { border-color: var(--rp-fern); box-shadow: 0 3px 14px rgba(14, 63, 59, 0.08); }
+.rp-tile--go:active { transform: scale(0.98); }
+.rp-tile--go[aria-pressed='true'] { border-color: var(--rp-fern-deep); box-shadow: inset 0 0 0 1px var(--rp-fern-deep); }
 
 /* filter bar: segmented status pills + rounded selects */
 .rp-filterbar {
@@ -1813,6 +1825,7 @@ textarea.input { min-height: 110px; resize: vertical; }
 }
 .rp-seg button:hover:not(.on) { background: var(--rp-fern-soft); color: var(--rp-ink); }
 .rp-seg button.on { background: var(--rp-fern-deep); color: #FFFFFF; }
+.rp-seg-short { display: none; }
 
 .rp-fselect {
   appearance: none;
@@ -2020,19 +2033,219 @@ a.rp-btn { text-decoration: none; display: inline-block; }
 }
 .rp-foot { margin: 16px 2px 0; font-size: 12.5px; color: var(--rp-muted); }
 
+/* ---------- inbox on a phone ---------- */
 @media screen and (max-width: 860px) {
-  .rp-stats { grid-template-columns: 1fr 1fr; gap: 8px; }
-  .rp-tile { padding: 10px 13px 8px; }
+  /* 3 + 2 tiles, no orphan: status counts on top (sized to their labels),
+     timing pair below */
+  .rp-stats { grid-template-columns: repeat(12, 1fr); gap: 8px; margin-bottom: 14px; }
+  .rp-tile { padding: 10px 12px 8px; grid-column: span 6; }
+  .rp-tile:nth-child(1) { grid-column: span 3; order: -2; }
+  .rp-tile:nth-child(2) { grid-column: span 4; order: -2; }
+  .rp-tile:nth-child(5) { grid-column: span 5; order: -1; }
+  .rp-tile .l { white-space: nowrap; }
+  .rp-tile .l { font-size: 9.5px; letter-spacing: 0.1em; }
   .rp-tile .v { font-size: 28px; }
-  /* filters scroll sideways, same trick as the old bar */
-  .rp-filterbar {
-    flex-wrap: nowrap;
-    overflow-x: auto;
-    -webkit-overflow-scrolling: touch;
-    padding-bottom: 6px;
-    scrollbar-width: none;
-  }
-  .rp-filterbar::-webkit-scrollbar { display: none; }
-  .rp-filterbar > * { flex-shrink: 0; }
   .rp-rowright { gap: 8px; }
+
+  /* stacked toolbar: full-width status tabs, then search + Filters button */
+  .rp-filterbar--phone { flex-direction: column; align-items: stretch; gap: 10px; margin-bottom: 14px; }
+  .rp-filterbar--phone .rp-seg {
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    width: 100%;
+    gap: 2px;
+  }
+  .rp-filterbar--phone .rp-seg button {
+    padding: 9px 2px;
+    min-height: 38px;
+    font-size: clamp(10.5px, 3.1vw, 12px);
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .rp-filterbar--phone .rp-seg-long { display: none; }
+  .rp-filterbar--phone .rp-seg-short { display: inline; }
+
+  .rp-mrow { display: flex; gap: 8px; }
+  .rp-msearch {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-height: 44px;
+    padding: 0 8px 0 13px;
+    background: var(--rp-surface);
+    border: 1px solid var(--rp-hairline);
+    border-radius: 999px;
+    color: var(--rp-muted);
+    transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  }
+  .rp-msearch:focus-within { border-color: var(--rp-fern); box-shadow: 0 0 0 3px rgba(138, 184, 42, 0.18); }
+  .rp-msearch-ic { display: inline-flex; flex-shrink: 0; }
+  .rp-msearch input {
+    flex: 1;
+    min-width: 0;
+    border: 0;
+    background: none;
+    outline: none;
+    font-family: var(--font-body);
+    font-size: 16px;   /* ≥16px keeps iOS from zooming the page on focus */
+    color: var(--rp-ink);
+  }
+  .rp-msearch input::placeholder { color: var(--rp-muted); }
+  .rp-msearch input::-webkit-search-cancel-button { display: none; }
+  .rp-msearch-x {
+    flex-shrink: 0;
+    width: 28px; height: 28px;
+    border: 0;
+    border-radius: 999px;
+    background: var(--rp-plane);
+    color: var(--rp-ink2);
+    font-size: 12px;
+    cursor: pointer;
+  }
+  .rp-fbtn {
+    flex-shrink: 0;
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    min-height: 44px;
+    padding: 0 15px;
+    border: 1px solid var(--rp-hairline);
+    border-radius: 999px;
+    background: var(--rp-surface);
+    color: var(--rp-ink2);
+    font-family: var(--font-head);
+    font-weight: 700;
+    font-size: 12.5px;
+    cursor: pointer;
+    transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+  }
+  .rp-fbtn:active { transform: scale(0.97); }
+  .rp-fbtn[data-active='true'] { background: var(--rp-fern-deep); border-color: var(--rp-fern-deep); color: #FFFFFF; }
+  .rp-fbtn-n {
+    display: inline-grid;
+    place-items: center;
+    min-width: 19px;
+    height: 19px;
+    padding: 0 5px;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.24);
+    font-size: 11px;
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* applied secondary filters, each removable in one tap */
+  .rp-achips { display: flex; flex-wrap: wrap; gap: 6px; }
+  .rp-achip {
+    border: 0;
+    border-radius: 999px;
+    padding: 6px 11px;
+    background: var(--rp-fern-soft);
+    color: var(--rp-fern-deep);
+    font-family: var(--font-head);
+    font-weight: 700;
+    font-size: 12px;
+    cursor: pointer;
+  }
+  .rp-achip span { opacity: 0.7; margin-left: 2px; }
+  .rp-achip--clear { background: none; color: var(--rp-muted); text-decoration: underline; text-underline-offset: 2px; }
+
+  /* bottom sheet for the secondary filters */
+  .rp-sheet {
+    position: fixed;
+    left: 0; right: 0; bottom: 0;
+    z-index: 41;
+    display: flex;
+    flex-direction: column;
+    max-height: 84vh;
+    max-height: 84dvh;
+    background: var(--rp-surface);
+    border-radius: 22px 22px 0 0;
+    box-shadow: 0 -18px 50px rgba(18, 52, 58, 0.3);
+    padding-bottom: env(safe-area-inset-bottom);
+    animation: slideSheet 0.24s cubic-bezier(0.2, 0.7, 0.2, 1) both;
+  }
+  .rp-sheet-grab {
+    width: 38px; height: 4px;
+    margin: 10px auto 0;
+    border-radius: 999px;
+    background: var(--rp-hairline);
+  }
+  .rp-sheet-head {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 8px 18px 4px;
+  }
+  .rp-sheet-head h3 {
+    margin: 0;
+    flex: 1;
+    font-family: var(--font-display);
+    font-size: 28px;
+    letter-spacing: 0.02em;
+    color: var(--rp-spruce);
+  }
+  .rp-sheet-clear {
+    border: 0;
+    background: none;
+    padding: 6px 4px;
+    font-family: var(--font-head);
+    font-weight: 700;
+    font-size: 12.5px;
+    color: var(--rp-fern-deep);
+    cursor: pointer;
+  }
+  .rp-sheet-x {
+    width: 32px; height: 32px;
+    border: 0;
+    border-radius: 999px;
+    background: var(--rp-plane);
+    color: var(--rp-ink2);
+    font-size: 13px;
+    cursor: pointer;
+  }
+  .rp-sheet-body { overflow-y: auto; overscroll-behavior: contain; padding: 0 18px 10px; }
+  .rp-sheet-group + .rp-sheet-group { margin-top: 4px; }
+  .rp-sheet-label {
+    margin: 14px 0 8px;
+    font-family: var(--font-head);
+    font-weight: 700;
+    font-size: 10.5px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--rp-muted);
+  }
+  .rp-optrow { display: flex; flex-wrap: wrap; gap: 8px; }
+  .rp-optrow button {
+    min-height: 38px;
+    padding: 7px 13px;
+    border: 1px solid var(--rp-hairline);
+    border-radius: 999px;
+    background: var(--rp-surface);
+    color: var(--rp-ink2);
+    font-family: var(--font-head);
+    font-weight: 700;
+    font-size: 13px;
+    cursor: pointer;
+    transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+  }
+  .rp-optrow button:active { transform: scale(0.97); }
+  .rp-optrow button.on { background: var(--rp-fern-deep); border-color: var(--rp-fern-deep); color: #FFFFFF; }
+  .rp-sheet-foot { padding: 12px 18px 14px; border-top: 1px solid var(--rp-hairline); }
+  .rp-sheet-done {
+    width: 100%;
+    min-height: 50px;
+    border: 0;
+    border-radius: 14px;
+    background: var(--rp-spruce);
+    color: var(--rp-birch);
+    font-family: var(--font-head);
+    font-weight: 700;
+    font-size: 14.5px;
+    letter-spacing: 0.02em;
+    cursor: pointer;
+  }
+  .rp-sheet-done:active { transform: scale(0.98); }
 }
+@keyframes slideSheet { from { transform: translateY(28px); opacity: 0; } to { transform: none; opacity: 1; } }

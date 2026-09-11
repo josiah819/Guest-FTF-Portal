@@ -22,7 +22,7 @@ let debounceTimer = null;
 function fireAll() {
   clearTimeout(debounceTimer);
   debounceTimer = setTimeout(() => {
-    if (document.visibilityState === 'hidden') return;   // refocus tick catches up
+    if (document.visibilityState === 'hidden') return;   // useSoftReload refetches on refocus
     for (const fn of subscribers) fn();
   }, DEBOUNCE_MS);
 }
@@ -83,6 +83,17 @@ function disconnect() {
 // Logging back in remounts the admin pages, whose hooks resubscribe — no
 // matching login event needed.
 window.addEventListener('woodsvoice:logout', disconnect);
+
+// Phones suspend a backgrounded tab's stream; when the tab comes back, don't
+// sit out the reconnect backoff — the page is refetching right now (see
+// useSoftReload) and wants live pings again from this moment.
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState !== 'visible' || controller || !subscribers.size) return;
+  clearTimeout(reconnectTimer);
+  reconnectTimer = null;
+  backoff = BACKOFF_MIN_MS;
+  connect();
+});
 
 export function subscribe(fn) {
   subscribers.add(fn);
