@@ -50,22 +50,6 @@ function InviteNote({ note, onDismiss }) {
   );
 }
 
-function DeptChips({ departments, selected, onToggle }) {
-  return (
-    <div className="dept-chips">
-      {departments.filter(d => d.active).map(d => {
-        const on = selected.includes(d.id);
-        return (
-          <button key={d.id} type="button" className={`chip-mini${on ? ' on' : ''}`}
-            onClick={() => onToggle(d.id)} aria-pressed={on}>
-            {d.name}
-          </button>
-        );
-      })}
-    </div>
-  );
-}
-
 function PendingInvites({ invites, setInviteNote, reloadInvites, confirm, setToast }) {
   if (!invites.length) return null;
 
@@ -117,9 +101,9 @@ function PendingInvites({ invites, setInviteNote, reloadInvites, confirm, setToa
   );
 }
 
-function UsersCard({ users, invites, roles, departments, reload, reloadInvites, setSecret, setInviteNote, confirm, setToast }) {
+function UsersCard({ users, invites, roles, reload, reloadInvites, setSecret, setInviteNote, confirm, setToast }) {
   const actor = useActor();
-  const blankDraft = { email: '', roleId: '', departmentIds: [] };
+  const blankDraft = { email: '', roleId: '' };
   const [draft, setDraft] = useState(blankDraft);
   const [busy, setBusy] = useState(false);
 
@@ -177,7 +161,7 @@ function UsersCard({ users, invites, roles, departments, reload, reloadInvites, 
       <h3>Users</h3>
       <p className="hint">
         Invite people by email — they finish their own account with Google or a password.
-        What they can see and do comes from their role (matrix below) plus which departments they belong to.
+        What they can see and do comes from their role (matrix below).
       </p>
 
       <form onSubmit={sendInvite} className="team-add">
@@ -189,12 +173,6 @@ function UsersCard({ users, invites, roles, departments, reload, reloadInvites, 
           <option value="">Role…</option>
           {roles.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
         </select>
-        <DeptChips departments={departments} selected={draft.departmentIds}
-          onToggle={(id) => setDraft(d => ({
-            ...d,
-            departmentIds: d.departmentIds.includes(id)
-              ? d.departmentIds.filter(x => x !== id) : [...d.departmentIds, id],
-          }))} />
         <button className="btn btn-teal btn-small" disabled={busy || !draft.email.trim() || !draft.roleId}>
           ✉ Send invite
         </button>
@@ -225,11 +203,6 @@ function UsersCard({ users, invites, roles, departments, reload, reloadInvites, 
           <div className="team-row__sub">
             <input className="input" style={{ width: 240 }} placeholder="email" type="email" defaultValue={u.email}
               onBlur={e => e.target.value !== u.email && update(u.id, { email: e.target.value })} />
-            <DeptChips departments={departments} selected={u.department_ids}
-              onToggle={(id) => update(u.id, {
-                departmentIds: u.department_ids.includes(id)
-                  ? u.department_ids.filter(x => x !== id) : [...u.department_ids, id],
-              })} />
           </div>
         </div>
       ))}
@@ -359,7 +332,6 @@ export default function Team() {
   const [invites, setInvites] = useState([]);
   const [roles, setRoles] = useState(null);
   const [permissions, setPermissions] = useState(null);
-  const [departments, setDepartments] = useState([]);
   const [secret, setSecret] = useState(null);
   const [inviteNote, setInviteNote] = useState(null);
   const [toast, setToast] = useState('');
@@ -380,7 +352,6 @@ export default function Team() {
   useEffect(() => {
     reload();
     api.permissionCatalog().then(d => setPermissions(d.permissions));
-    api.catalog('departments').then(d => setDepartments(d.rows));
   }, []);
 
   // Rows are keyed by id and the name/email inputs are uncontrolled, so a
@@ -401,14 +372,14 @@ export default function Team() {
         <div>
           <div className="kicker" style={{ color: 'var(--orange)' }}>Who does what</div>
           <h1 className="display">Team & roles</h1>
-          <div className="sub">Accounts, permissions, and department membership.</div>
+          <div className="sub">Accounts, roles, and permissions.</div>
         </div>
       </div>
 
       <SecretNote secret={secret} onDismiss={() => setSecret(null)} />
       <InviteNote key={inviteNote?.acceptUrl} note={inviteNote} onDismiss={() => setInviteNote(null)} />
 
-      <UsersCard users={users} invites={invites} roles={roles} departments={departments}
+      <UsersCard users={users} invites={invites} roles={roles}
         reload={reload} reloadInvites={reloadInvites}
         setSecret={setSecret} setInviteNote={setInviteNote} confirm={confirm} setToast={setToast} />
 
