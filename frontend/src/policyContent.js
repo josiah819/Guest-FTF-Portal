@@ -81,7 +81,7 @@ Before you accept an invite, the portal holds your email address and intended ro
 
 ## Sessions
 
-Signing in stores a signed session token in your browser. It expires after 12 hours, and signing out removes it. The admin side sets no advertising or analytics cookies.
+Signing in stores a signed session token in your browser. It keeps you signed in on that device until you sign out (an untouched device is signed out after a year), and signing out removes it. The admin side sets no advertising or analytics cookies.
 
 ## Your activity
 

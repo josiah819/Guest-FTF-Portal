@@ -9,12 +9,20 @@ if (JWT_SECRET === 'woodsvoice-dev-secret-change-me') {
   console.warn('[auth] JWT_SECRET not set — using insecure dev default');
 }
 
+// Staff stay signed in on a device until they sign out: tokens are long-lived
+// and every authenticated request renews one that is more than a day old (see
+// requireAuth), so only a device untouched for a full year ever expires.
+// Deactivation still bites immediately — rbac reloads the user on each request.
+const TOKEN_TTL = '365d';
+const RENEW_AFTER_MS = 24 * 60 * 60 * 1000;
+const RENEWED_TOKEN_HEADER = 'X-Woodsvoice-Token';
+
+function signClaims(claims) {
+  return jwt.sign(claims, JWT_SECRET, { expiresIn: TOKEN_TTL });
+}
+
 function signToken(user) {
-  return jwt.sign(
-    { sub: user.id, username: user.username, name: user.display_name },
-    JWT_SECRET,
-    { expiresIn: '12h' }
-  );
+  return signClaims({ sub: user.id, username: user.username, name: user.display_name });
 }
 
 function loginPayload(user) {
@@ -81,6 +89,10 @@ function requireAuth(req, res, next) {
   if (!token) return res.status(401).json({ error: 'Not signed in.' });
   try {
     req.admin = jwt.verify(token, JWT_SECRET);
+    if (Date.now() - req.admin.iat * 1000 > RENEW_AFTER_MS) {
+      const { sub, username, name } = req.admin;
+      res.set(RENEWED_TOKEN_HEADER, signClaims({ sub, username, name }));
+    }
     next();
   } catch {
     res.status(401).json({ error: 'Session expired — please sign in again.' });
@@ -103,4 +115,4 @@ const changePassword = aw(async (req, res) => {
   res.json({ ok: true });
 });
 
-module.exports = { login, loginGoogle, requireAuth, changePassword, signToken };
+module.exports = { login, loginGoogle, requireAuth, changePassword, signToken, RENEWED_TOKEN_HEADER };

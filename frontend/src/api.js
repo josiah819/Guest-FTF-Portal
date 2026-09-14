@@ -17,9 +17,15 @@ async function request(path, { method = 'GET', body, formData, auth = false } = 
     body: formData || (body ? JSON.stringify(body) : undefined),
   });
 
-  if (res.status === 401 && auth) {
-    setToken(null);
-    window.dispatchEvent(new Event('woodsvoice:logout'));
+  if (auth) {
+    // The server slides the session forward by handing back a fresh token on
+    // any authenticated call once the current one is a day old.
+    const renewed = res.headers.get('x-woodsvoice-token');
+    if (renewed) setToken(renewed);
+    if (res.status === 401) {
+      setToken(null);
+      window.dispatchEvent(new Event('woodsvoice:logout'));
+    }
   }
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw Object.assign(new Error(data.error || `Request failed (${res.status})`), { status: res.status });
